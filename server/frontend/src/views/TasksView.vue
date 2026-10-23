@@ -1,0 +1,165 @@
+<script setup>
+import { onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { TasksApi, errorMessage } from '../api/client'
+import { formatBytes, formatTime, taskStatus } from '../utils/format'
+import { useLiveEvents } from '../composables/useLiveEvents'
+
+const { on, onReconnect } = useLiveEvents()
+
+const tasks = ref([])
+const loading = ref(false)
+let timer = null
+let off = null
+
+const ACTIVE = new Set(['pending', 'uploading', 'verifying'])
+
+async function load() {
+  loading.value = true
+  try {
+    const { data } = await TasksApi.list({ limit: 200 })
+    tasks.value = data.items || []
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function refreshOne(taskId) {
+  try {
+    const { data } = await TasksApi.get(taskId)
+    const index = tasks.value.findIndex((item) => item.id === taskId)
+    if (index >= 0) tasks.value[index] = data
+    else tasks.value.unshift(data)
+  } catch {
+    // 任务可能刚被清理，忽略
+  }
+}
+
+function applyEvent(event) {
+  if (event.type === 'task_progress') {
+    const data = event.data
+    const item = tasks.value.find((task) => task.id === data.task_id)
+    if (!item) return
+    item.transferred_bytes = data.bytes
+    item.progress = data.progress
+    item.status = 'uploading'
+  } else if (event.type === 'task_update') {
+    refreshOne(event.data.task_id)
+  }
+}
+
+async function cancel(task) {
+  try {
+    await ElMessageBox.confirm(`取消「${task.name}」的取件任务？已上传的分片会被清理。`, '取消任务', {
+      confirmButtonText: '取消任务',
+      cancelButtonText: '再等等',
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+  try {
+    await TasksApi.cancel(task.id)
+    ElMessage.success('已取消')
+    refreshOne(task.id)
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  }
+}
+
+async function retry(task) {
+  try {
+    await TasksApi.create({ agent_id: task.agent_id, path: task.path })
+    ElMessage.success('已重新提交')
+    load()
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  }
+}
+
+onMounted(() => {
+  load()
+  // 兜底轮询：SSE 断线期间错过的终态事件靠它补上（事件流不重放）
+  timer = setInterval(load, 5000)
+  off = on(applyEvent)
+  onReconnect(load)
+})
+
+onUnmounted(() => {
+  clearInterval(timer)
+  off?.()
+})
+</script>
+
+<template>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>取件任务（{{ tasks.length }}）</h2>
+      <el-button text @click="load">
+        <el-icon><Refresh /></el-icon>
+        <span style="margin-left: 4px">刷新</span>
+      </el-button>
+    </div>
+
+    <el-table :data="tasks" v-loading="loading" style="width: 100%" empty-text="还没有任务">
+      <el-table-column label="文件" min-width="220">
+        <template #default="{ row }">
+          <div>{{ row.name }}</div>
+          <div class="cell-path">{{ row.path }}</div>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="状态" width="110">
+        <template #default="{ row }">
+          <el-tag :type="taskStatus(row.status).type" size="small" effect="light">
+            {{ taskStatus(row.status).text }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="进度" min-width="200">
+        <template #default="{ row }">
+          <div class="progress-cell">
+            <el-progress
+              :percentage="Math.min(100, Math.round(row.progress || 0))"
+              :status="row.status === 'failed' ? 'exception' : undefined"
+              :stroke-width="6"
+            />
+            <div class="muted mono" style="margin-top: 2px">
+              {{ formatBytes(row.transferred_bytes) }} / {{ formatBytes(row.total_bytes) }}
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="失败原因" min-width="180">
+        <template #default="{ row }">
+          <span v-if="row.error" class="muted">{{ row.error }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="创建时间" width="170">
+        <template #default="{ row }">
+          <span class="muted">{{ formatTime(row.created_at) }}</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <div class="row-actions">
+            <el-button v-if="ACTIVE.has(row.status)" text size="small" @click="cancel(row)">
+              取消
+            </el-button>
+            <el-button v-else-if="row.status === 'failed'" text size="small" @click="retry(row)">
+              重试
+            </el-button>
+            <span v-else class="muted">—</span>
+          </div>
+        </template>
+      </el-table-column>
+    </el-table>
+  </div>
+</template>

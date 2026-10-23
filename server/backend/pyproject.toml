@@ -1,0 +1,45 @@
+[project]
+name = "filebridge-server"
+version = "0.1.0"
+description = "部署在 A 上的后端：WebSocket 控制通道 + 分片接收 + 文件库 + 前端静态托管"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic-settings>=2.4",
+    "argon2-cffi>=23.1",
+    "aiosqlite>=0.20",
+]
+
+[project.scripts]
+filebridge-server = "filebridge_server.main:main"
+
+# 无 workspace、无 path 依赖：本项目可以单独 clone、单独 build、单独部署到 A 上。
+# 线上协议在 src/filebridge_server/protocol.py 里，与 agent 那份必须逐字节一致
+# （由 tests/test_protocol.py 比对）。
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[dependency-groups]
+# 这里**不能**出现 filebridge-agent：一旦写进来，server 就依赖 ../agent 存在，
+# 而部署时 A 上只有 server/。实测 `uv sync` 会因为 path 解析失败直接退出。
+# 端到端测试需要真实 agent 时，用 `./dev.sh sync`（它会额外把 ../../agent
+# 装进这个 venv），测试文件里有 importorskip 兜住"没装就跳过"。
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.7",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "websockets>=13",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

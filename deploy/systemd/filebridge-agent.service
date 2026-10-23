@@ -1,0 +1,31 @@
+[Unit]
+Description=FileBridge agent (B)
+Documentation=https://github.com/your-org/filebridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=filebridge
+Group=filebridge
+EnvironmentFile=/etc/filebridge/agent.env
+
+ExecStart=/opt/filebridge-agent/.venv/bin/filebridge-agent
+
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# 只读不变量在这里也体现一次：共享目录只读挂载给进程，
+# 即使代码有 bug 也写不进去。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/srv/share
+ReadWritePaths=/var/log/filebridge
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

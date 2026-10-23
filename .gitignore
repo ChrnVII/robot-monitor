@@ -1,0 +1,28 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+dist/
+*.egg-info/
+
+# 前端
+node_modules/
+server/frontend/dist/
+server/frontend/.vite/
+
+# 运行时数据，绝不入库
+data/
+storage/
+*.db
+*.db-wal
+*.db-shm
+logs/
+
+# 本地配置
+.env
+agent.toml
+
+# 本地演示环境
+.demo/
