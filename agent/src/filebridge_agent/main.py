@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--state-dir",
         default=None,
-        help="凭据文件目录，默认 ~/.local/state/filebridge",
+        help="凭据文件目录，默认项目内 .filebridge/",
     )
     parser.add_argument("--log-level", default=None, help="DEBUG/INFO/WARNING")
     parser.add_argument(

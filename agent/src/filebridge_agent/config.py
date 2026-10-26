@@ -36,7 +36,7 @@ class AgentConfig:
     heartbeat_interval: float = 15.0
     max_concurrent_uploads: int = 3
     verify_tls: bool = True
-    # 本地凭据文件目录；不传则用 $XDG_STATE_HOME/filebridge 或 ~/.local/state/filebridge
+    # 本地凭据文件目录；不传则用项目内 .filebridge/（wheel 安装时 ~/.local/state/filebridge）
     state_dir: str | None = None
     # 注册后由 A 分配，轮换 token 时要带上
     agent_id: str | None = None

@@ -3,9 +3,12 @@
 注册一次之后，server / token / agent_id / root 都落在这里，之后启动不需要任何参数。
 文件权限 0600 —— 它等价于一份长期口令，不能让同组用户读到。
 
-位置：`$FILEBRIDGE_AGENT_STATE_DIR` > `$XDG_STATE_HOME/filebridge` >
-`~/.local/state/filebridge`。用 state 而不是 config，因为这是运行时产生的、
-可再生的东西（删掉重新注册即可）。
+位置：`$FILEBRIDGE_AGENT_STATE_DIR` > 项目内 `.filebridge/` >
+`~/.local/state/filebridge`（wheel 安装、找不到项目根时的回落）。
+
+按用户要求与代码放在一起（agent/.filebridge/），由 .gitignore 挡住版本库；
+代价是 rsync / 备份 / 重装项目目录时要记得绕开它。这是有意的选择：
+这个项目就两台自己的机器，目录不会被同步工具搬运。
 """
 
 from __future__ import annotations
@@ -36,9 +39,16 @@ def default_state_dir() -> Path:
     explicit = os.environ.get("FILEBRIDGE_AGENT_STATE_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    xdg = os.environ.get("XDG_STATE_HOME")
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "state"
-    return base / "filebridge"
+    return _project_state_dir()
+
+
+def _project_state_dir() -> Path:
+    """项目内的 .filebridge/。找不到项目根（wheel 安装）时回落到 ~/.local/state。"""
+    here = Path(__file__).resolve()
+    for parent in here.parents[:6]:
+        if (parent / "pyproject.toml").is_file():
+            return parent / ".filebridge"
+    return Path.home() / ".local" / "state" / "filebridge"
 
 
 def state_path(config: AgentConfig) -> Path:

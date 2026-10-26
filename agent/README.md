@@ -15,7 +15,7 @@
 ```bash
 uv run filebridge-agent --server https://files.example.com --root /srv/share
 # 首次会自动向 A 注册，token 由 A 签发并存到
-# ~/.local/state/filebridge/agent.json（0600）；之后连参数都可以省
+# agent/.filebridge/agent.json（0600，已 gitignore）；之后连参数都可以省
 ```
 
 `--server` 写 `https://…` 或 `wss://…/ws/agent` 都可以，agent 会自己推出

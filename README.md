@@ -73,7 +73,7 @@ dev.sh              统一入口
 打开 <http://127.0.0.1:5173>，用 `admin` + 刚才设的密码登录。
 
 **没有手工步骤**：密码不用算哈希、token 不用复制粘贴。凭据都存在该存的地方——
-密码在 `data/filebridge.db`，agent 的 token 在 `~/.local/state/filebridge/agent.json`（0600）。
+密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agent.json`（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
 
 之后再启动，参数都可以省：
 

@@ -165,7 +165,7 @@ async def test_no_write_mode_open_in_agent_source():
     source_dir = pathlib.Path(__file__).resolve().parents[1] / "src" / "filebridge_agent"
     write_mode = re.compile(r"""open\([^)]*,\s*["'](?:w|a|r\+|wb|ab|x)""")
 
-    # 唯一的例外：credentials.py 要写自己的凭据文件（$XDG_STATE_HOME 下，0600）。
+    # 唯一的例外：credentials.py 要写自己的凭据文件（项目内 .filebridge/，0600）。
     # 它写的是"自己的状态"，不是共享目录；例外名单写死在这里，多出第二个文件就红。
     allowed = {"credentials.py"}
 

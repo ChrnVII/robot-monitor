@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 
 from filebridge_agent.config import AgentConfig
 from filebridge_agent.credentials import (
@@ -74,8 +75,19 @@ def test_state_dir_env_overrides_default(tmp_path, monkeypatch):
     assert default_state_dir() == tmp_path / "custom"
 
 
-def test_xdg_state_home_is_respected(tmp_path, monkeypatch):
-    monkeypatch.delenv("FILEBRIDGE_AGENT_STATE_DIR", raising=False)
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+def test_default_lands_in_project_dir():
+    """默认凭据目录在项目内（agent/.filebridge/），由 .gitignore 挡住版本库。"""
+    import filebridge_agent.credentials as credentials_module
 
-    assert default_state_dir() == tmp_path / "xdg" / "filebridge"
+    project_root = pathlib.Path(credentials_module.__file__).resolve().parents[2]
+    assert default_state_dir() == project_root / ".filebridge"
+
+
+def test_installed_without_project_falls_back_to_xdg(tmp_path, monkeypatch):
+    """wheel 安装后包在 site-packages 里，向上找不到 pyproject.toml，回落 XDG。"""
+    import filebridge_agent.credentials as credentials_module
+
+    monkeypatch.delenv("FILEBRIDGE_AGENT_STATE_DIR", raising=False)
+    monkeypatch.setattr(credentials_module, "__file__", str(tmp_path / "lib" / "site-packages" / "filebridge_agent" / "credentials.py"))
+
+    assert default_state_dir() == pathlib.Path.home() / ".local" / "state" / "filebridge"
