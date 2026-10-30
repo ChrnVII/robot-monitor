@@ -441,6 +441,14 @@ a {
   min-width: 150px;
 }
 
+/* 已完成任务的单元格：替代进度条，一行"✓ 已入库 12.3 MB" */
+.done-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--el-color-success);
+}
+
 .row-actions {
   display: flex;
   gap: 12px;

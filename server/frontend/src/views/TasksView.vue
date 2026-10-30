@@ -121,7 +121,14 @@ onUnmounted(() => {
 
       <el-table-column label="进度" min-width="200">
         <template #default="{ row }">
-          <div class="progress-cell">
+          <!-- 完成的任务画一根 100% 的条没有任何信息量，换成"已入库 + 大小"。
+               失败的保留红条：能从停在哪儿看出断点位置。 -->
+          <div v-if="row.status === 'done'" class="done-cell">
+            <el-icon><CircleCheckFilled /></el-icon>
+            <span>已入库</span>
+            <span class="muted mono">{{ formatBytes(row.total_bytes) }}</span>
+          </div>
+          <div v-else class="progress-cell">
             <el-progress
               :percentage="Math.min(100, Math.round(row.progress || 0))"
               :status="row.status === 'failed' ? 'exception' : undefined"
