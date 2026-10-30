@@ -1,19 +1,50 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { AgentsApi, TasksApi, errorMessage } from '../api/client'
 import { formatBytes } from '../utils/format'
+import { useLiveEvents } from '../composables/useLiveEvents'
 
 const route = useRoute()
 const router = useRouter()
+const live = useLiveEvents()
+let off = null
+
+// 记住"上次在看哪台节点"。两份存储各有分工：
+// - URL query：从节点页点「浏览文件」进来时带着它，可刷新、可前进后退；
+// - localStorage：从侧边栏点「取件」进来时没有 query，靠它恢复上次的选择。
+const STORAGE_KEY = 'fb:browse-agent'
+
+function readRememberedAgent() {
+  try {
+    return localStorage.getItem(STORAGE_KEY) || ''
+  } catch {
+    // 隐私模式/禁用存储：退化成"每次都从第一台开始"，不该因此报错
+    return ''
+  }
+}
+
+function rememberAgent(id) {
+  try {
+    if (id) localStorage.setItem(STORAGE_KEY, id)
+    else localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    /* 同上，记不住就算了 */
+  }
+}
 
 const agents = ref([])
-const agentId = ref(typeof route.query.agent === 'string' ? route.query.agent : '')
+const agentId = ref(
+  (typeof route.query.agent === 'string' ? route.query.agent : '') || readRememberedAgent()
+)
 const treeKey = ref(0)
 const selected = ref([])
 const submitting = ref(false)
 const treeLoading = ref(false)
+// 节点列表回来之前不挂载树：否则会拿着"上次记住但已被删掉的 id"先发一次请求，
+// 闪一个 409 提示，然后再被纠正过来。
+const agentsReady = ref(false)
 
 const currentAgent = computed(() => agents.value.find((item) => item.id === agentId.value) || null)
 const online = computed(() => Boolean(currentAgent.value?.online))
@@ -23,17 +54,36 @@ async function loadAgents() {
   try {
     const { data } = await AgentsApi.list()
     agents.value = data.items || []
-    if (!agentId.value && agents.value.length) {
-      agentId.value = agents.value[0].id
+
+    // 记住的节点可能已经被删了（或者换过机器）。这时才回落到第一台在线节点——
+    // 不做这个校验的话，下拉框会停在一个不存在的 id 上，目录永远空着。
+    if (!agents.value.some((item) => item.id === agentId.value)) {
+      agentId.value = (agents.value.find((item) => item.online) || agents.value[0])?.id || ''
     }
+    rememberAgent(agentId.value)
+    syncQuery()
   } catch (error) {
     ElMessage.error(errorMessage(error))
+  } finally {
+    agentsReady.value = true
   }
+}
+
+/** 把当前选择写进 URL。用 replace，避免每次切换节点都往历史里塞一条记录。 */
+function syncQuery() {
+  const inUrl = typeof route.query.agent === 'string' ? route.query.agent : ''
+  if (inUrl === agentId.value) return
+  router.replace({
+    name: 'browse',
+    query: agentId.value ? { agent: agentId.value } : {}
+  })
 }
 
 /** el-tree 的懒加载。目录展开时才请求，大目录也不会一次性拉全。 */
 async function loadNode(node, resolve) {
-  if (!agentId.value) return resolve([])
+  // 节点不在线就别发请求了：拿到的必然是 409，树下面还有一条黄色提示
+  // 说明原因，再弹一个 toast 只是噪音。
+  if (!agentId.value || !online.value) return resolve([])
   const path = node.level === 0 ? '' : node.data.rel
   treeLoading.value = true
   try {
@@ -88,6 +138,8 @@ function refreshTree() {
 function changeAgent() {
   selected.value = []
   refreshTree()
+  rememberAgent(agentId.value)
+  syncQuery()
 }
 
 async function submit() {
@@ -113,8 +165,35 @@ async function submit() {
   router.push({ name: 'tasks' })
 }
 
-onMounted(loadAgents)
+// 同一条路由只改 query 时组件不会重建（前进/后退、或从别处跳到
+// /browse?agent=xxx），所以这里要手动跟随 URL，否则页面会停在旧节点上。
+watch(
+  () => route.query.agent,
+  (value) => {
+    const next = typeof value === 'string' ? value : ''
+    if (!next || next === agentId.value) return
+    if (!agents.value.some((item) => item.id === next)) return
+    agentId.value = next
+    changeAgent()
+  }
+)
+
+// 记住的节点可能是"离线但还在库里"的那台：等它上线时目录要自己出来，
+// 不能要求用户手动切一次节点。
+watch(online, (isOnline) => {
+  if (isOnline) refreshTree()
+})
+
+onMounted(() => {
+  loadAgents()
+  // 在线状态是 A 推过来的。这里只关心"我选的那台"，但刷新一次列表最省事。
+  off = live.on((event) => {
+    if (['agent_online', 'agent_offline', 'agent_removed'].includes(event.type)) loadAgents()
+  })
+})
+
 onUnmounted(() => {
+  off?.()
   selected.value = []
 })
 </script>
@@ -163,8 +242,9 @@ onUnmounted(() => {
           <h2>目录</h2>
           <span class="muted">点击文件加入右侧清单</span>
         </div>
-        <div class="tree-scroll" v-loading="treeLoading">
+        <div class="tree-scroll" v-loading="!agentsReady || treeLoading">
           <el-tree
+            v-if="agentsReady"
             :key="`${agentId}-${treeKey}`"
             :load="loadNode"
             lazy
