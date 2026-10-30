@@ -192,6 +192,8 @@ def test_fetch_file_end_to_end(stack):
     download = stack.http.get(f"/api/v1/files/{entry['id']}/download")
     assert download.status_code == 200
     assert download.content == payload
+    # 哈希随文件一起下发：用户拿到文件就能 `sha256sum` 对照，不用去界面上抄
+    assert download.headers["x-file-sha256"] == hashlib.sha256(payload).hexdigest()
 
 
 def test_zero_byte_file(stack):
@@ -221,6 +223,8 @@ def test_range_download_returns_206(stack):
     assert response.status_code == 206, response.status_code
     assert response.content == payload[:100]
     assert response.headers["content-range"] == f"bytes 0-99/{len(payload)}"
+    # 206 也带同一个值：它描述的是整个文件，不是这一百个字节
+    assert response.headers["x-file-sha256"] == hashlib.sha256(payload).hexdigest()
 
 
 def test_directory_and_traversal_are_rejected(stack, tmp_path):

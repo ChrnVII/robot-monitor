@@ -177,14 +177,6 @@ onUnmounted(() => {
         </template>
       </el-table-column>
 
-      <el-table-column label="SHA256" width="150">
-        <template #default="{ row }">
-          <el-tooltip :content="row.sha256" placement="top">
-            <span class="mono muted">{{ row.sha256.slice(0, 12) }}…</span>
-          </el-tooltip>
-        </template>
-      </el-table-column>
-
       <el-table-column :label="deleted ? '删除时间' : '入库时间'" width="170">
         <template #default="{ row }">
           <span class="muted">{{ formatTime(deleted ? row.deleted_at : row.created_at) }}</span>

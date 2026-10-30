@@ -50,10 +50,17 @@ async def download(file_id: str, ctx: Context) -> FileResponse:
             status.HTTP_410_GONE,
             detail={"code": ErrorCode.FILE_NOT_FOUND.value, "message": "磁盘上没有这个文件了"},
         )
+    # 把哈希放进响应头，而不是让用户去界面上抄那 12 位前缀：
+    # 校验发生在"拿到文件之后"，那就该和文件一起给。十六进制形式可以直接
+    # 和 `sha256sum` 的输出对照（不用 RFC 9530 的 Digest，那个是 base64）。
+    #
+    # 注意它描述的是**整个文件**：Range 请求（206）也会带上同一个值，
+    # 拿分片的字节去核对当然对不上，这是响应头的语义，不是 bug。
     return FileResponse(
         path,
         media_type="application/octet-stream",
         filename=row["orig_name"],
+        headers={"X-File-Sha256": str(row["sha256"])},
     )
 
 
