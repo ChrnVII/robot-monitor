@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { AgentsApi, FilesApi, errorMessage } from '../api/client'
-import { formatBytes, formatTime } from '../utils/format'
+import { dirOf, formatBytes, formatTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
 const { on } = useLiveEvents()
@@ -155,15 +155,17 @@ onUnmounted(() => {
     <el-table :data="files" v-loading="loading" style="width: 100%" :empty-text="deleted ? '回收站是空的' : '还没有文件，去「取件」取一个'">
       <el-table-column label="文件名" min-width="240">
         <template #default="{ row }">
-          <div style="display: flex; align-items: center; gap: 8px">
-            <el-icon style="color: #8f9bb3"><Document /></el-icon>
-            <span :title="row.name">{{ row.name }}</span>
+          <!-- 与任务页一致：一行 "路径/文件名"，路径压暗、文件名加深。
+               老数据 rel_path 可能为空，那时只显示文件名。 -->
+          <div class="file-cell" :title="row.rel_path || row.name">
+            <el-icon class="file-icon"><Document /></el-icon>
+            <span class="file-dir">{{ dirOf(row.rel_path, row.name) }}</span>
+            <span class="file-name">{{ row.name }}</span>
           </div>
-          <div v-if="row.rel_path" class="cell-path">{{ row.rel_path }}</div>
         </template>
       </el-table-column>
 
-      <el-table-column label="大小" width="110">
+      <el-table-column label="大小" width="110" align="right">
         <template #default="{ row }">
           <span class="mono">{{ formatBytes(row.size) }}</span>
         </template>

@@ -4,6 +4,7 @@
   --fb-border: #e6e9f0;
   --fb-text: #1f2430;
   --fb-text-muted: #6b7280;
+  --fb-text-faint: #98a2b3;
   --fb-accent: #2f6fed;
   --fb-accent-soft: #eaf0ff;
   --fb-success: #16a34a;
@@ -441,12 +442,43 @@ a {
   min-width: 150px;
 }
 
-/* 已完成任务的单元格：替代进度条，一行"✓ 已入库 12.3 MB" */
+/* 已完成任务的单元格：替代进度条，只留一个勾 */
 .done-cell {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--el-color-success);
+}
+
+/* 文件列（任务页 / 文件库共用）：一行 "路径/文件名"，路径压暗、文件名加深。
+   路径可收缩并被省略号截断，文件名永远完整——否则长路径会把名字挤没。
+   注意不要给 .file-cell 加 gap：目录部分自带结尾的 "/"，加了会多出一个空格。 */
+.file-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.file-icon {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  color: #8f9bb3;
+}
+
+.file-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--fb-text-faint);
+}
+
+.file-name {
+  flex: 0 0 auto;
+  font-weight: 500;
+  color: var(--fb-text);
 }
 
 .row-actions {

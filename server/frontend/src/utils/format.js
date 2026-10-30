@@ -26,6 +26,20 @@ export function relativeTime(timestamp) {
   return `${Math.floor(seconds / 86400)} 天前`
 }
 
+/**
+ * 从完整相对路径里取出目录部分，用于把"路径 / 文件名"分色显示：
+ *   dirOf('robot-monitor/docs/手册.md', '手册.md') → 'robot-monitor/docs/'
+ *
+ * 文件名以后端给的 name 为准（它就是 basename），这里只做"去掉尾部"，
+ * 不自己按 / 切分——那样会和服务端的路径语义各说各话。
+ * 根目录下的文件返回空串。
+ */
+export function dirOf(path, name) {
+  if (!path || !name) return ''
+  if (path.length <= name.length || !path.endsWith(name)) return ''
+  return path.slice(0, path.length - name.length)
+}
+
 /** 状态 → 文案与标签色。前端只按 status 判断，不猜业务含义。 */
 export const TASK_STATUS = {
   pending: { text: '准备中', type: 'info' },

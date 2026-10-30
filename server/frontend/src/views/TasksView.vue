@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { TasksApi, errorMessage } from '../api/client'
-import { formatBytes, formatTime, taskStatus } from '../utils/format'
+import { dirOf, formatBytes, formatTime, taskStatus } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
 const { on, onReconnect } = useLiveEvents()
@@ -104,46 +104,21 @@ onUnmounted(() => {
     </div>
 
     <el-table :data="tasks" v-loading="loading" style="width: 100%" empty-text="还没有任务">
-      <el-table-column label="文件" min-width="220">
+      <el-table-column label="文件" min-width="240">
         <template #default="{ row }">
-          <div>{{ row.name }}</div>
-          <div class="cell-path">{{ row.path }}</div>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="状态" width="110">
-        <template #default="{ row }">
-          <el-tag :type="taskStatus(row.status).type" size="small" effect="light">
-            {{ taskStatus(row.status).text }}
-          </el-tag>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="进度" min-width="200">
-        <template #default="{ row }">
-          <!-- 完成的任务画一根 100% 的条没有任何信息量，换成"已入库 + 大小"。
-               失败的保留红条：能从停在哪儿看出断点位置。 -->
-          <div v-if="row.status === 'done'" class="done-cell">
-            <el-icon><CircleCheckFilled /></el-icon>
-            <span>已入库</span>
-            <span class="muted mono">{{ formatBytes(row.total_bytes) }}</span>
-          </div>
-          <div v-else class="progress-cell">
-            <el-progress
-              :percentage="Math.min(100, Math.round(row.progress || 0))"
-              :status="row.status === 'failed' ? 'exception' : undefined"
-              :stroke-width="6"
-            />
-            <div class="muted mono" style="margin-top: 2px">
-              {{ formatBytes(row.transferred_bytes) }} / {{ formatBytes(row.total_bytes) }}
-            </div>
+          <!-- 一行显示 "路径/文件名"：路径压暗、文件名加深加粗。
+               两行版本里 filename 和 path 的尾部是同一串字符，重复了。 -->
+          <div class="file-cell" :title="row.path">
+            <span class="file-dir">{{ dirOf(row.path, row.name) }}</span>
+            <span class="file-name">{{ row.name }}</span>
           </div>
         </template>
       </el-table-column>
 
-      <el-table-column label="失败原因" min-width="180">
+      <el-table-column label="文件大小" width="110" align="right">
         <template #default="{ row }">
-          <span v-if="row.error" class="muted">{{ row.error }}</span>
+          <!-- 建任务前 stat 还没回来时 total_bytes 是空的，别显示成 "0 B" -->
+          <span v-if="row.total_bytes" class="mono">{{ formatBytes(row.total_bytes) }}</span>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
@@ -154,7 +129,40 @@ onUnmounted(() => {
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column label="进度" min-width="190">
+        <template #default="{ row }">
+          <!-- 完成的任务画一根 100% 的条没有任何信息量。只留一个勾：
+               右边的"状态"列已经写了已完成，这里再写一遍只是重复。
+               失败的红条保留——能从停在哪儿看出断点位置。大小已在独立列里。 -->
+          <div v-if="row.status === 'done'" class="done-cell">
+            <el-icon><CircleCheckFilled /></el-icon>
+          </div>
+          <div v-else class="progress-cell">
+            <el-progress
+              :percentage="Math.min(100, Math.round(row.progress || 0))"
+              :status="row.status === 'failed' ? 'exception' : undefined"
+              :stroke-width="6"
+            />
+          </div>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="taskStatus(row.status).type" size="small" effect="light">
+            {{ taskStatus(row.status).text }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="失败原因" min-width="200">
+        <template #default="{ row }">
+          <span v-if="row.error" class="muted">{{ row.error }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+
+      <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
           <div class="row-actions">
             <el-button v-if="ACTIVE.has(row.status)" text size="small" @click="cancel(row)">
