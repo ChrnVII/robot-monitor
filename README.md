@@ -100,8 +100,9 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 ./dev.sh revoke-token <agent_id>
 ```
 
-> 新增设备默认要人工批准一次（`FILEBRIDGE_ENROLL_POLICY=first`）。内网完全可信的话，
-> 设 `FILEBRIDGE_ENROLL_POLICY=open` 就是"填 IP 即接入"。
+> 新增设备默认要人工批准一次（`FILEBRIDGE_ENROLL_POLICY=first`）：网页「节点」页
+> 会顶出「待批准接入」，点批准即可，也可以用 `./dev.sh pending` / `approve`。
+> 内网完全可信的话，设 `FILEBRIDGE_ENROLL_POLICY=open` 就是"填 IP 即接入"。
 
 生产构建：`./dev.sh build` → `server/frontend/dist` 由 FastAPI 直接托管，
 服务器上不需要 Node。

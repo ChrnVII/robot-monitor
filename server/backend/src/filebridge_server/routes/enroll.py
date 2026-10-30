@@ -88,12 +88,26 @@ async def enroll(payload: EnrollRequest, request: Request, ctx: Context):
     logger.info(
         "enrollment from %s (%s) is pending: %s", client_ip, payload.hostname, pending_id
     )
+    # 推给浏览器，让「节点」页的待批准列表即时出现——否则管理员得自己刷新
+    # 才发现有台机器在等，而那台机器一直在轮询空转。
+    ctx.bus.publish(
+        "enroll_pending",
+        {
+            "pending_id": pending_id,
+            "hostname": payload.hostname,
+            "root_path": payload.root_path,
+            "remote_ip": client_ip,
+        },
+    )
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
         content={
             "status": "pending",
             "pending_id": pending_id,
-            "hint": f"在 A 上执行：filebridge-server approve {pending_id}",
+            "hint": (
+                "在 A 的「节点」页面点批准，或在 A 上执行："
+                f"filebridge-server approve {pending_id}"
+            ),
         },
     )
 

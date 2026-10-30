@@ -37,7 +37,13 @@ export const AuthApi = {
 
 export const AgentsApi = {
   list: () => api.get('/api/v1/agents'),
-  listDir: (agentId, payload) => api.post(`/api/v1/agents/${agentId}/list`, payload)
+  listDir: (agentId, payload) => api.post(`/api/v1/agents/${agentId}/list`, payload),
+  // deleteFiles=true 时把该节点的文件一并移入回收站；默认只注销节点、保留文件
+  remove: (agentId, { deleteFiles = false } = {}) =>
+    api.delete(`/api/v1/agents/${agentId}`, { params: { delete_files: deleteFiles } }),
+  pending: () => api.get('/api/v1/agents/pending'),
+  approve: (pendingId) => api.post(`/api/v1/agents/pending/${pendingId}/approve`),
+  reject: (pendingId) => api.post(`/api/v1/agents/pending/${pendingId}/reject`)
 }
 
 export const TasksApi = {

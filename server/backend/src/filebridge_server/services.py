@@ -234,6 +234,105 @@ class TaskService:
         return await self.get_task(task_id)
 
     # ------------------------------------------------------------------
+    # 节点移除
+    # ------------------------------------------------------------------
+
+    async def remove_agent(
+        self, agent_id: str, *, delete_files: bool = False, actor: str = "admin"
+    ) -> dict[str, Any]:
+        """注销一台 B。顺序是「先吊销 → 再断开 → 收尾任务 → 最后删行」。
+
+        - **先吊销**：`revoked_at` 一写，token 立刻失效，B 的自助轮换也走不通
+          （轮换要求旧 token 仍然有效）。这一步同时是安全网：后面任何一步失败，
+          节点也已经不可用了，管理员修好再删即可。
+        - **再断开**：token 只在握手时校验一次，不主动断开的话，那台机器在
+          DELETE 返回之后仍能凭既有连接继续下传。
+        - **收尾任务**：task 停在 uploading、staging 却没删，就是一块永久占盘的
+          孤儿文件——`sweep_idle_uploads` 只清超时的，节点没了它永远不超时。
+        - **文件默认保留**：A 的磁盘是这些文件的唯一副本，删节点不等于删数据。
+          要清就走 `delete_files`，而且只进回收站，30 天内还能还原。
+        """
+        row = await self.db.fetchone("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        if row is None:
+            raise ApiError(404, ErrorCode.FILE_NOT_FOUND, f"没有这个节点：{agent_id}")
+
+        # ① 先吊销：token 立刻失效，且挡住 B 的自助轮换（轮换要求旧 token 仍有效）。
+        #    顺序放在断开之前，否则 B 会在"断开→删行"这个窗口里换到一个新 token。
+        await self.auth.revoke_agent(agent_id)
+
+        # ② 再断开：token 只在握手时校验一次，不断开的话现有连接还能继续下传
+        conn = self.hub.get(agent_id)
+        if conn is not None:
+            await conn.shutdown("node removed by admin", code=4401)
+            await self.hub.unregister(conn)
+
+        now = time.time()
+        running = await self.db.fetchall(
+            "SELECT id FROM tasks WHERE agent_id = ? AND status NOT IN (?, ?, ?)",
+            (agent_id, DONE, FAILED, CANCELED),
+        )
+        for task in running:
+            await self.db.execute(
+                "UPDATE tasks SET status = ?, error_code = ?, error = ?, updated_at = ? WHERE id = ?",
+                (CANCELED, ErrorCode.AGENT_OFFLINE.value, "节点已被删除", now, task["id"]),
+            )
+
+        pending = await self.db.fetchall(
+            "SELECT id FROM uploads WHERE agent_id = ? AND status NOT IN (?, ?, ?)",
+            (agent_id, DONE, FAILED, CANCELED),
+        )
+        for upload in pending:
+            await self.db.execute(
+                "UPDATE uploads SET status = ?, updated_at = ? WHERE id = ?",
+                (CANCELED, now, upload["id"]),
+            )
+            try:
+                await self.storage.drop_staging(str(upload["id"]))
+            except StorageError:
+                logger.warning("staging for upload %s was not removed", upload["id"])
+
+        files = await self.db.fetchall(
+            "SELECT id FROM files WHERE agent_id = ? AND deleted_at IS NULL", (agent_id,)
+        )
+        trashed = 0
+        if delete_files:
+            for file_row in files:
+                try:
+                    await self.soft_delete(str(file_row["id"]), actor=actor)
+                except (OSError, StorageError):
+                    # 磁盘上已经不在了：库里仍要落成"已删除"，否则它会永远挂在列表上
+                    await self.db.execute(
+                        "UPDATE files SET deleted_at = ? WHERE id = ?",
+                        (time.time(), file_row["id"]),
+                    )
+                trashed += 1
+
+        await self.db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+        await self.auth.audit(
+            actor,
+            "agent.delete",
+            target=agent_id,
+            detail=f"{row['name']} tasks={len(running)} files={len(files)} trashed={trashed}",
+        )
+        self.bus.publish("agent_removed", {"agent_id": agent_id, "name": row["name"]})
+        logger.info(
+            "agent %s (%s) removed: %d task(s) canceled, %d file(s) kept, %d trashed",
+            agent_id,
+            row["name"],
+            len(running),
+            len(files) - trashed,
+            trashed,
+        )
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "name": str(row["name"]),
+            "tasks_canceled": len(running),
+            "files_kept": len(files) - trashed,
+            "files_trashed": trashed,
+        }
+
+    # ------------------------------------------------------------------
     # 分块
     # ------------------------------------------------------------------
 

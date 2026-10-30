@@ -22,7 +22,10 @@ let searchTimer = null
 const deleted = computed(() => tab.value === 'trash')
 
 function agentName(id) {
-  return agentNames.value[id] || id
+  // 节点被删掉之后，文件仍然留在库里（删节点≠删数据），这里给个能读懂的说法，
+  // 否则来源列会突然变成一串十六进制
+  if (!id) return '—'
+  return agentNames.value[id] || `已移除的节点（${id.slice(0, 6)}）`
 }
 
 async function loadAgents() {
