@@ -1,10 +1,14 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { AgentsApi, TasksApi, errorMessage } from '../api/client'
 import { formatBytes } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
+
+// keep-alive 按 name 点名缓存（见 AppLayout），切到别的页面再回来，
+// 展开的目录、滚动位置、勾选的清单都还在。
+defineOptions({ name: 'BrowseView' })
 
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +43,9 @@ const agentId = ref(
   (typeof route.query.agent === 'string' ? route.query.agent : '') || readRememberedAgent()
 )
 const treeKey = ref(0)
+// 根目录是否已经加载过。用来区分"树还是空的（等它上线要重建）"和
+// "树里已经有用户展开的目录（绝不能重建）"。
+const rootLoaded = ref(false)
 const selected = ref([])
 const submitting = ref(false)
 const treeLoading = ref(false)
@@ -49,6 +56,17 @@ const agentsReady = ref(false)
 const currentAgent = computed(() => agents.value.find((item) => item.id === agentId.value) || null)
 const online = computed(() => Boolean(currentAgent.value?.online))
 const totalBytes = computed(() => selected.value.reduce((sum, item) => sum + (item.size || 0), 0))
+
+/**
+ * 页面所处的状态。以前只有 `!online` 一个布尔，于是"还没加载出节点列表"
+ * 被当成"节点离线"，进页面会闪一下警告。
+ * loading = 列表还没回来；empty = 一台节点都没有；offline = 选中那台掉线。
+ */
+const viewState = computed(() => {
+  if (!agentsReady.value) return 'loading'
+  if (!agents.value.length || !agentId.value) return 'empty'
+  return online.value ? 'online' : 'offline'
+})
 
 async function loadAgents() {
   try {
@@ -71,6 +89,9 @@ async function loadAgents() {
 
 /** 把当前选择写进 URL。用 replace，避免每次切换节点都往历史里塞一条记录。 */
 function syncQuery() {
+  // 兜底：这个组件被 keep-alive 缓存着，万一在别的页面时被触发，
+  // 不能把用户拽回取件页。
+  if (route.name !== 'browse') return
   const inUrl = typeof route.query.agent === 'string' ? route.query.agent : ''
   if (inUrl === agentId.value) return
   router.replace({
@@ -90,6 +111,7 @@ async function loadNode(node, resolve) {
     const { data } = await AgentsApi.listDir(agentId.value, { path, limit: 500 })
     const entries = data.entries || []
     const nodes = entries.map((entry) => ({ ...entry, leaf: entry.type !== 'dir' }))
+    if (node.level === 0) rootLoaded.value = true
 
     // 超过一页时明确告诉用户"没显示全"，而不是悄悄截断——
     // 少了文件比报错更难发现。
@@ -133,6 +155,7 @@ function removeAt(index) {
 
 function refreshTree() {
   treeKey.value += 1
+  rootLoaded.value = false
 }
 
 function changeAgent() {
@@ -178,24 +201,47 @@ watch(
   }
 )
 
-// 记住的节点可能是"离线但还在库里"的那台：等它上线时目录要自己出来，
-// 不能要求用户手动切一次节点。
+// 记住的节点可能是"离线但还在库里"的那台：等它上线时目录要自己出来。
+// 但只在树还是空的时候重建——树里已经有用户展开的目录时，重建等于把他的
+// 操作清空，那比"目录不出来"更烦人。
 watch(online, (isOnline) => {
-  if (isOnline) refreshTree()
+  if (isOnline && !rootLoaded.value) refreshTree()
 })
 
-onMounted(() => {
-  loadAgents()
-  // 在线状态是 A 推过来的。这里只关心"我选的那台"，但刷新一次列表最省事。
+// 订阅 A 推来的在线状态。离开页面时必须退订：这个组件被缓存着，
+// 若还在收事件，loadAgents 会顺手把 URL 改回 /browse，等于把用户拽回来。
+function startWatching() {
+  off?.()
   off = live.on((event) => {
     if (['agent_online', 'agent_offline', 'agent_removed'].includes(event.type)) loadAgents()
   })
+}
+
+function stopWatching() {
+  off?.()
+  off = null
+}
+
+let firstActivate = true
+
+onMounted(() => {
+  loadAgents()
+  startWatching()
 })
 
-onUnmounted(() => {
-  off?.()
-  selected.value = []
+onActivated(() => {
+  // 首次挂载时 activated 紧跟在 mounted 后面，不要重复加载
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  // 从别的页面回来：只刷新节点在线状态，不动目录树（保留展开状态）
+  startWatching()
+  loadAgents()
 })
+
+onDeactivated(stopWatching)
+onUnmounted(stopWatching)
 </script>
 
 <template>
@@ -226,13 +272,23 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- 两种"没东西可看"要分开说：一台节点都没有，和选中的那台掉线了 -->
     <el-alert
-      v-if="!online"
+      v-if="viewState === 'offline'"
       type="warning"
       :closable="false"
       show-icon
       title="节点不在线"
       description="取件需要 B 主动连着 A。请确认 B 上的 agent 在运行、token 未吊销。"
+      style="margin-bottom: 18px"
+    />
+    <el-alert
+      v-else-if="viewState === 'empty'"
+      type="info"
+      :closable="false"
+      show-icon
+      title="还没有可用的节点"
+      description="在 B 上启动 agent 后，它会出现在「节点」页；批准接入后就能在这里浏览文件。"
       style="margin-bottom: 18px"
     />
 
@@ -242,9 +298,9 @@ onUnmounted(() => {
           <h2>目录</h2>
           <span class="muted">点击文件加入右侧清单</span>
         </div>
-        <div class="tree-scroll" v-loading="!agentsReady || treeLoading">
+        <div class="tree-scroll" v-loading="viewState === 'loading' || treeLoading">
           <el-tree
-            v-if="agentsReady"
+            v-if="viewState === 'online' || viewState === 'offline'"
             :key="`${agentId}-${treeKey}`"
             :load="loadNode"
             lazy
@@ -267,6 +323,13 @@ onUnmounted(() => {
               </span>
             </template>
           </el-tree>
+          <div
+            v-if="viewState === 'empty'"
+            class="muted"
+            style="padding: 40px 12px; text-align: center"
+          >
+            还没有接入任何节点
+          </div>
         </div>
       </div>
 

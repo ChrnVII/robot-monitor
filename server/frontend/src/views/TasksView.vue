@@ -1,9 +1,12 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { TasksApi, errorMessage } from '../api/client'
 import { dirOf, formatBytes, formatTime, taskStatus } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
+
+// 被 keep-alive 缓存（见 AppLayout）：切走再回来，滚动位置不动
+defineOptions({ name: 'TasksView' })
 
 const { on, onReconnect } = useLiveEvents()
 
@@ -14,8 +17,8 @@ let off = null
 
 const ACTIVE = new Set(['pending', 'uploading', 'verifying'])
 
-async function load() {
-  loading.value = true
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true
   try {
     const { data } = await TasksApi.list({ limit: 200 })
     tasks.value = data.items || []
@@ -79,25 +82,50 @@ async function retry(task) {
   }
 }
 
-onMounted(() => {
-  load()
+// 轮询与 SSE 订阅：进页面开，离开关。这个页面被缓存着，不关就会在后台
+// 每 5 秒请求一次，用户还以为自己没开这个页面。
+function startWatching() {
+  stopWatching()
   // 兜底轮询：SSE 断线期间错过的终态事件靠它补上（事件流不重放）
   timer = setInterval(load, 5000)
   off = on(applyEvent)
+}
+
+function stopWatching() {
+  clearInterval(timer)
+  timer = null
+  off?.()
+  off = null
+}
+
+let firstActivate = true
+
+onMounted(() => {
+  load()
+  startWatching()
   onReconnect(load)
 })
 
-onUnmounted(() => {
-  clearInterval(timer)
-  off?.()
+onActivated(() => {
+  // 首次挂载时 activated 紧跟在 mounted 后面
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  // 回来先对一次账（静默，不闪加载遮罩）：离开期间的 SSE 事件不会被重放
+  load({ silent: true })
+  startWatching()
 })
+
+onDeactivated(stopWatching)
+onUnmounted(stopWatching)
 </script>
 
 <template>
   <div class="panel">
     <div class="panel-head">
       <h2>取件任务（{{ tasks.length }}）</h2>
-      <el-button text @click="load">
+      <el-button text @click="load()">
         <el-icon><Refresh /></el-icon>
         <span style="margin-left: 4px">刷新</span>
       </el-button>

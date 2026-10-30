@@ -1,10 +1,13 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { AgentsApi, errorMessage } from '../api/client'
 import { formatTime, relativeTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
+
+// 被 keep-alive 缓存（见 AppLayout），和其他三个页面保持一致
+defineOptions({ name: 'NodesView' })
 
 const router = useRouter()
 const live = useLiveEvents()
@@ -22,8 +25,8 @@ const deleting = ref(false)
 
 let off = null
 
-async function load() {
-  loading.value = true
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true
   try {
     const { data } = await AgentsApi.list()
     agents.value = data.items || []
@@ -34,8 +37,8 @@ async function load() {
   }
 }
 
-async function loadPending() {
-  pendingLoading.value = true
+async function loadPending({ silent = false } = {}) {
+  if (!silent) pendingLoading.value = true
   try {
     const { data } = await AgentsApi.pending()
     pending.value = data.items || []
@@ -117,18 +120,47 @@ async function reject(item) {
   }
 }
 
-onMounted(() => {
-  load()
-  loadPending()
-  // 在线状态与待批准列表都由 A 推过来，不需要轮询
+// 在线状态与待批准列表都由 A 推过来。进页面开、离开关。
+function startWatching() {
+  off?.()
   off = live.on((event) => {
     if (event.type === 'agent_online' || event.type === 'agent_offline') load()
     if (event.type === 'agent_removed') Promise.all([load(), loadPending()])
     if (event.type === 'enroll_pending' || event.type === 'enroll_resolved') loadPending()
   })
+}
+
+function stopWatching() {
+  off?.()
+  off = null
+}
+
+let firstActivate = true
+
+onMounted(() => {
+  load()
+  loadPending()
+  startWatching()
 })
 
-onUnmounted(() => off?.())
+onActivated(() => {
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  // 回来静默对账：离开期间可能有节点上下线或新的接入申请
+  load({ silent: true })
+  loadPending({ silent: true })
+  startWatching()
+})
+
+onDeactivated(() => {
+  stopWatching()
+  // 对话框是 teleport 到 body 的，页面被缓存时它不会跟着卸载：
+  // 不主动关掉，切走了还会挂着一层遮罩。
+  deleteTarget.value = null
+})
+onUnmounted(stopWatching)
 </script>
 
 <template>
@@ -139,7 +171,7 @@ onUnmounted(() => off?.())
           待批准接入（{{ pending.length }}）
           <el-tag size="small" type="warning" style="margin-left: 6px">需要确认</el-tag>
         </h2>
-        <el-button text :loading="pendingLoading" @click="loadPending">
+        <el-button text :loading="pendingLoading" @click="loadPending()">
           <el-icon><Refresh /></el-icon>
           <span style="margin-left: 4px">刷新</span>
         </el-button>
@@ -206,7 +238,7 @@ filebridge-server issue-token --name b-office</pre>
       <div v-else class="panel">
         <div class="panel-head">
           <h2>节点（{{ agents.length }}）</h2>
-          <el-button text @click="load">
+          <el-button text @click="load()">
             <el-icon><Refresh /></el-icon>
             <span style="margin-left: 4px">刷新</span>
           </el-button>

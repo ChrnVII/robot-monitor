@@ -115,7 +115,15 @@ onUnmounted(() => {
       </header>
 
       <main class="content">
-        <router-view />
+        <!-- 四个页面都缓存：取件页保"展开的目录/勾选清单"，文件库保 Tab 与
+             搜索词，任务页保滚动位置，节点页保待批准列表的展开状态。
+             规矩是：缓存可以，但每个页面必须在 onActivated 里静默对一次账，
+             否则看到的是离开那一刻的旧数据。 -->
+        <router-view v-slot="{ Component }">
+          <keep-alive :include="['NodesView', 'BrowseView', 'TasksView', 'FilesView']">
+            <component :is="Component" />
+          </keep-alive>
+        </router-view>
       </main>
     </div>
   </div>

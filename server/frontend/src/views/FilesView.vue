@@ -1,9 +1,12 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { AgentsApi, FilesApi, errorMessage } from '../api/client'
 import { dirOf, formatBytes, formatTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
+
+// 被 keep-alive 缓存（见 AppLayout）：切走再回来，Tab、搜索词、页码都还在
+defineOptions({ name: 'FilesView' })
 
 const { on } = useLiveEvents()
 
@@ -37,8 +40,8 @@ async function loadAgents() {
   }
 }
 
-async function load() {
-  loading.value = true
+async function load({ silent = false } = {}) {
+  if (!silent) loading.value = true
   try {
     const { data } = await FilesApi.list({
       q: query.value.trim() || undefined,
@@ -116,17 +119,46 @@ watch(tab, () => {
   load()
 })
 
-onMounted(() => {
-  loadAgents()
-  load()
+// 文件事件的订阅：进页面开、离开关（缓存组件不关会在后台白白请求）
+function startWatching() {
+  off?.()
   off = on((event) => {
     if (['file_added', 'file_removed', 'file_restored'].includes(event.type)) load()
   })
+}
+
+function stopWatching() {
+  off?.()
+  off = null
+}
+
+let firstActivate = true
+
+onMounted(() => {
+  loadAgents()
+  load()
+  startWatching()
+})
+
+onActivated(() => {
+  if (firstActivate) {
+    firstActivate = false
+    return
+  }
+  // 回来静默对账：离开期间可能又有文件入库/被删
+  loadAgents()
+  load({ silent: true })
+  startWatching()
+})
+
+onDeactivated(() => {
+  stopWatching()
+  clearTimeout(searchTimer)
 })
 
 onUnmounted(() => {
+  stopWatching()
   clearTimeout(searchTimer)
-  off?.()
 })
 </script>
 
@@ -207,8 +239,8 @@ onUnmounted(() => {
         :page-sizes="[20, 50, 100]"
         layout="total, sizes, prev, pager, next"
         background
-        @size-change="load"
-        @current-change="load"
+        @size-change="load()"
+        @current-change="load()"
       />
     </div>
   </div>
