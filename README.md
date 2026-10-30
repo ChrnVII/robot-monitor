@@ -24,30 +24,37 @@
 ```
 server/             A 端，一个项目、两个技术栈
   backend/          uv + FastAPI（CLI：serve / passwd / pending / approve …）
-    src/filebridge_server/
-    tests/          单元测试 + 真实 uvicorn/agent 的端到端测试
-  frontend/         Vue 3 + JS + Vite + Element Plus
-    src/{views,layout,stores,api,composables}
+  frontend/         Vue 3 + JS + Vite + Element Plus（产物由 backend 托管）
 
 agent/              B 端，独立项目（uv + Python），只读
-  src/filebridge_agent/
-    protocol.py     线上协议（与 server 那份逐字节相同）
-  tests/            沙箱逃逸矩阵、分页、续传、只读不变量扫描
-
-contract/           协议黄金样例（JSON 夹具，只被测试读取，不进任何构建产物）
+contract/           协议黄金样例（JSON 夹具，只被测试读取）
 deploy/             systemd unit、Nginx 反代、env 模板、备份脚本
-docs/               调研笔记与实施计划书
+docs/               部署手册、设计说明
 dev.sh              统一入口
 ```
 
-两个 Python 项目**完全独立**：各自 `uv sync`、各自的 `.venv` 与 `uv.lock`、
-没有 workspace、没有 path 依赖，可以单独 clone、单独 build、单独部署。
+两个 Python 项目**完全独立**：各自 `uv sync`、各自的 `.venv` 与 `uv.lock`、没有
+workspace、没有 path 依赖，可以单独 clone、单独 build、单独部署。
+
+## 为什么不是拿现成的拼
+
+C 要的三件事——① B 反向接入、② 按需从 B 取件、③ 集中在 A 上管理——开源项目里
+没有同时做全的：
+
+| 方案 | 做到了 | 缺哪一块 |
+|---|---|---|
+| MeshCentral / Tactical RMM | ① ② | 文件只是**流式穿过** A，不落盘 |
+| FileBrowser Quantum / copyparty | ③ | 不会主动去 B 取 |
+| UrBackup | ① ② ③ | 心智模型是**备份快照**，不是可增删的文件池 |
+
+所以只借它们的通道设计（copyparty 的分块续传、remote-machine-access 的沙箱与
+token 校验），自研中间那一层薄服务。
 
 ## 协议怎么共享（没有共享包）
 
-`protocol.py` 在两个项目里各有一份，内容必须**逐字节相同**。不抽成第三个包，是
-因为它只有 200 行，而抽出去要付三个具体成本：两个 pyproject 都写 path 依赖、
-给 B 装 agent 得装两个 wheel、改一行注释要动第三个项目。
+`protocol.py` 在两个项目里各有一份，内容必须**逐字节相同**。不抽成第三个包，是因为
+它只有 200 行、5 个命令、11 个错误码，而抽出去要付三个具体成本：两个 pyproject 都写
+path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三个项目。
 
 复制唯一的风险是漂移，用两道测试兜住（两端都跑）：
 
@@ -73,7 +80,8 @@ dev.sh              统一入口
 打开 <http://127.0.0.1:5173>，用 `admin` + 刚才设的密码登录。
 
 **没有手工步骤**：密码不用算哈希、token 不用复制粘贴。凭据都存在该存的地方——
-密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agent.json`（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
+密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agent.json`
+（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
 
 之后再启动，参数都可以省：
 
@@ -101,7 +109,7 @@ dev.sh              统一入口
 ### 测试
 
 ```bash
-./dev.sh test      # protocol + agent + backend 全跑
+./dev.sh test      # protocol + agent + backend 全跑（当前 agent 112 + backend 93，1 条按平台跳过）
 ./dev.sh lint
 ```
 
@@ -111,117 +119,25 @@ Range 下载、回收站和 SSE。它比单元测试慢，但这类流程错一�
 ## 生产部署
 
 > 逐条命令、验收清单、故障排查表在 **[docs/部署手册.md](docs/部署手册.md)**。
-> 下面只是流程概要。
+> 设计取舍在 **[docs/设计说明.md](docs/设计说明.md)**。
 
-### 先看清单：只需要两个目录
+只需要准备两个目录：
 
 | 目标 | 拷什么 | 不用拷 |
 |---|---|---|
-| **A（服务器）** | `server/`（backend 源码 + `frontend/dist` 构建产物，合计约 2MB） | `agent/`、`contract/`、`docs/`、`dev.sh` |
+| **A（服务器）** | `server/`（backend 源码 + `frontend/dist`，合计约 2MB） | `agent/`、`contract/`、`docs/`、`dev.sh` |
 | **B（内网机器）** | `agent/` 打出来的**一个** wheel | 其余全部 |
 
-两边都是自包含的，没有跨目录引用。这一点有实测兜底：把 `server/` 单独拷进一个
-干净目录，`uv sync` 能成功、服务能起来、页面能打开；`pytest` 里需要 agent 的
-那组测试会自动跳过（2 项），不会因为缺少 agent 而报错。
+两边都自包含，没有跨目录引用。这一点有实测兜底：把 `server/` 单独拷进一个干净目录，
+`uv sync` 能成功、服务能起来、页面能打开；`pytest` 里需要 agent 的那组测试会自动跳过，
+不会因为缺少 agent 而报错。
+
+对外只需要 **443**：页面、`/api/*`、`/api/events`、`/ws/agent`、`/internal/*` 共用同一个
+端口，靠路径区分；80 只做 ACME 与跳转。uvicorn 绑 `127.0.0.1:8000`，不对公网开放。
+B 侧不需要任何入站端口。
 
 `deploy/` 不参与"部署"：它是配置参考，按需把 systemd unit、Nginx 站点、env 模板
-`cp` 到 `/etc` 下。`docs/` 是设计文档，`contract/` 是测试夹具，都不上机器。
-
-### A（服务器）
-
-```bash
-# 0. 本机构建前端产物（服务器不需要 Node）
-cd server/frontend && npm ci && npm run build
-
-# 1. 整个 server/ 拷到 /opt/filebridge：
-#      /opt/filebridge/backend/     后端源码 + .venv
-#      /opt/filebridge/frontend/    含 dist
-sudo mkdir -p /opt/filebridge /var/lib/filebridge/{data,storage} /etc/filebridge
-sudo useradd -r -s /usr/sbin/nologin filebridge
-sudo chown -R filebridge:filebridge /var/lib/filebridge
-sudo rsync -a --exclude node_modules --exclude .venv server/ /opt/filebridge/
-
-# 2. 后端依赖（server/ 自包含，不需要 agent 目录）
-sudo -u filebridge uv sync --project /opt/filebridge/backend --frozen
-
-# 3. 配置（这里没有密码，密码在首次启动时设置）
-sudo install -m 640 -o root -g filebridge deploy/filebridge.env.example /etc/filebridge/filebridge.env
-
-# 4. 服务
-sudo cp deploy/systemd/filebridge-server.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now filebridge-server
-
-# 首次启动没有终端，会自动生成一个随机密码：
-sudo cat /var/lib/filebridge/data/initial-password    # 登录一次后该文件自动删除
-# 想立刻换成自己的：sudo -u filebridge .../filebridge-server passwd
-
-# 5. Nginx + TLS
-sudo cp deploy/nginx/filebridge.conf /etc/nginx/conf.d/
-sudo certbot --nginx -d files.example.com
-```
-
-### 端口：严格说只需要 443
-
-| 端口 | 谁能访问 | 用途 |
-|---|---|---|
-| **443/tcp** | 公网（C 的浏览器 + B 的 agent） | 全部业务：页面、`/api/*`、`/api/events`（SSE）、`/ws/agent`（控制通道）、`/internal/*`（分片上传） |
-| **80/tcp** | 公网 | 只做 ACME 证书验证 + 301 跳到 443。没有域名/证书时可以先只开它，但不建议长期 |
-| 8000/tcp | **只有本机** | uvicorn，绑 `127.0.0.1`，绝不对公网开放 |
-
-控制通道和上传通道**共用一个 443**，靠路径区分：`/ws/agent` 升级成 WebSocket，
-`/internal/*` 是普通 HTTP。这是"控制走 WS、数据走 HTTP"的附带好处——不用为上传
-再开端口、再配一张证书、再多一条防火墙规则。
-
-```bash
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# 8000 不要放行。确认它只绑在本机：
-ss -lntp | grep 8000        # 应为 127.0.0.1:8000，不是 0.0.0.0:8000
-```
-
-B 侧不需要任何入站端口：它主动拨出 443。
-
-### B（内网机器）
-
-```bash
-# 在 A 上签发 token 后，把 agent 装到 B（不需要 git、不需要源码）
-./dev.sh issue-token --name b-office
-
-# 打包：只有一个 wheel，agent 是自包含的
-uv build --project agent -o dist/
-scp dist/filebridge_agent-0.1.0-py3-none-any.whl b-host:/tmp/
-
-# B 上：装进独立 venv（systemd unit 里写的就是这个路径）
-sudo mkdir -p /opt/filebridge-agent /var/log/filebridge
-sudo uv venv /opt/filebridge-agent/.venv
-sudo uv pip install --python /opt/filebridge-agent/.venv/bin/python \
-    /tmp/filebridge_agent-0.1.0-py3-none-any.whl
-
-# 配置共享目录（token 不用填：首次启动会自动注册）
-sudo install -m 640 -o root -g filebridge deploy/agent.env.example /etc/filebridge/agent.env
-
-# 先手动跑一次，确认能连上
-sudo -u filebridge /opt/filebridge-agent/.venv/bin/filebridge-agent \
-    --server https://files.example.com --root /srv/share
-
-# 常驻
-sudo cp deploy/systemd/filebridge-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now filebridge-agent
-```
-
-常驻用 `deploy/systemd/filebridge-agent.service`（它把共享目录按只读挂载给进程）。
-
-### 备份
-
-```bash
-sudo FILEBRIDGE_DATA_DIR=/var/lib/filebridge/data \
-     FILEBRIDGE_STORAGE_DIR=/var/lib/filebridge/storage \
-     deploy/backup.sh /var/backups/filebridge
-```
-
-**不要直接 `cp` SQLite 文件**：WAL 模式下会拿到缺少最近提交的库。脚本里用的是
-backup API。
+`cp` 到 `/etc` 下。`docs/` 是文档，`contract/` 是测试夹具，都不上机器。
 
 ## 平台
 
@@ -262,7 +178,7 @@ B 从第一个缺失块继续。块是幂等的，重复上传只会多花一点
 | 只有 send loop 能碰 socket | 并发 send 会交错帧，失败是间歇性的 |
 | 每个请求一个 `id` + Future + 超时 | 没有超时，agent 不回包就永久泄漏 |
 | 指令队列有界且阻塞，遥测满了直接丢 | 阻塞防丢指令，有界防 OOM |
-| 命令是封闭枚举，未列举的直接拒 | 即使 A 被攻破，B 能做的事仍是有限集合 |
+| 命令走白名单，未列举的直接拒 | 即使 A 被攻破，B 能做的事仍是有限集合 |
 | 路径先 `resolve()` 再判包含 | 否则软链接能指向全盘 |
 | A 也校验路径（双层） | A 是唯一暴露面，不能只靠 B 兜底 |
 | 下载只认 `file_id`，不认路径 | A 侧不存在路径穿越面 |
@@ -272,26 +188,14 @@ B 从第一个缺失块继续。块是幂等的，重复上传只会多花一点
 | B 只读，`open()` 只用 `"rb"` | 有一条测试扫描源码强制这一点 |
 | 两份 `protocol.py` 必须逐字节一致 | 没有共享包，靠源码比对测试兜住漂移 |
 
-## 状态
-
-| 阶段 | 状态 |
-|---|---|
-| M0 骨架 / M1 协议（两端各一份 + 契约样例）/ 路径沙箱 | ✅ |
-| M2 接入（WS hub、注册、心跳、在线状态） | ✅ |
-| M3 浏览（`list_dir` 游标分页、`stat_file`） | ✅ |
-| M4 取件（分片、续传、sha256、预分配落盘） | ✅ |
-| M5 管理（列表、搜索、Range 下载、回收站） | ✅ |
-| M6 前端（五个页面 + SSE） | ✅ |
-| M7 加固（限流、磁盘预检、审计日志） | ✅ |
-| M8 部署（systemd、Nginx、备份、文档） | ✅ |
-| M9 零配置接入（密码入库 + 首次引导、B 自动注册、准入策略与审批） | ✅ |
-
-测试规模：`agent` 111 + `backend` 93，其中 1 条软链接逃逸用例在
-当前开发机上跳过（文件系统没能真正建立软链接，测了也是假阳性，Linux 上会执行）。
-
-## 明确不做（v1）
+## 明确不做
 
 - B 上的删除/重命名/写入——B 是只读源，能力面越小越安全
 - 任何命令执行——从设计上消除 RCE 面
 - 多租户、配额计费、秒传去重
 - 多 A worker 横向扩展（要做先换掉进程内注册表）
+
+## 状态
+
+v1 已完成并部署验证（M0–M9：骨架、协议、接入、浏览、取件、管理、前端、加固、
+部署、零配置接入）。剩下的扩展方向都写在上面的"明确不做"里。
