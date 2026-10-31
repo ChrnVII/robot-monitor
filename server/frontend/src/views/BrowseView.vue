@@ -186,6 +186,20 @@ function onCheck() {
 }
 
 /**
+ * 行尾复选框的处理。
+ *
+ * `deep` 只对"已经加载过"的目录打开：el-tree 在 deep=true 时会对未加载的
+ * 懒节点递归 loadData，勾一个几千文件的目录等于把整棵树拉进浏览器。
+ * 未加载的目录只标自己——用户展开时 el-tree 会把 checked 状态传递给子节点
+ * （见 node.expand()），提交时这个目录本身也会被 A 端展开，结果一致。
+ */
+function toggleNode(node, value) {
+  const deep = Boolean(node.loaded && node.childNodes?.length)
+  treeRef.value?.setChecked(node.data.rel, value, deep)
+  onCheck()
+}
+
+/**
  * 点文件 = 勾选（和改造前一致，不用非去点那个小方框）；
  * 点目录 = 展开（浏览的主要动作），勾整个目录要点复选框。
  */
@@ -291,32 +305,6 @@ onUnmounted(stopWatching)
 
 <template>
   <div>
-    <div class="panel" style="margin-bottom: 18px">
-      <div class="panel-body" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
-        <span class="muted">节点</span>
-        <el-select v-model="agentId" style="width: 240px" @change="changeAgent">
-          <el-option
-            v-for="agent in agents"
-            :key="agent.id"
-            :label="`${agent.name}${agent.online ? '' : '（离线）'}`"
-            :value="agent.id"
-            :disabled="!agent.online"
-          />
-        </el-select>
-
-        <el-tag v-if="currentAgent?.roots?.length" type="info" effect="plain">
-          <span class="mono">{{ currentAgent.roots[0] }}</span>
-        </el-tag>
-
-        <div style="margin-left: auto">
-          <el-button text :disabled="!online" @click="refreshTree">
-            <el-icon><Refresh /></el-icon>
-            <span style="margin-left: 4px">刷新目录</span>
-          </el-button>
-        </div>
-      </div>
-    </div>
-
     <!-- 两种"没东西可看"要分开说：一台节点都没有，和选中的那台掉线了 -->
     <el-alert
       v-if="viewState === 'offline'"
@@ -338,10 +326,28 @@ onUnmounted(stopWatching)
     />
 
     <div class="panel tree-panel">
-      <div class="panel-head">
-        <h2>目录</h2>
-        <div style="display: flex; align-items: center; gap: 14px">
-          <span class="muted">点箭头展开 · 勾目录 = 取整个目录</span>
+      <!-- 节点选择与操作挤在同一行，树直接从下面开始，省掉一层标题栏 -->
+      <div class="panel-head browse-bar">
+        <span class="muted">节点</span>
+        <el-select v-model="agentId" style="width: 220px" @change="changeAgent">
+          <el-option
+            v-for="agent in agents"
+            :key="agent.id"
+            :label="`${agent.name}${agent.online ? '' : '（离线）'}`"
+            :value="agent.id"
+            :disabled="!agent.online"
+          />
+        </el-select>
+
+        <el-tag v-if="currentAgent?.roots?.length" type="info" effect="plain">
+          <span class="mono">{{ currentAgent.roots[0] }}</span>
+        </el-tag>
+
+        <div class="bar-actions">
+          <el-button text :disabled="!online" @click="refreshTree">
+            <el-icon><Refresh /></el-icon>
+            <span style="margin-left: 4px">刷新目录</span>
+          </el-button>
           <el-button
             type="primary"
             :loading="submitting"
@@ -361,13 +367,12 @@ onUnmounted(stopWatching)
           :load="loadNode"
           lazy
           show-checkbox
-          check-strictly
           :props="{ label: 'name', isLeaf: 'leaf', disabled: 'disabled' }"
           node-key="rel"
           @check="onCheck"
           @node-click="onNodeClick"
         >
-          <template #default="{ data }">
+          <template #default="{ node, data }">
             <span class="tree-node">
               <el-icon class="node-icon">
                 <Folder v-if="data.type === 'dir'" />
@@ -377,6 +382,16 @@ onUnmounted(stopWatching)
               </el-icon>
               <span class="node-name">{{ data.name }}</span>
               <span v-if="data.type === 'file'" class="node-size">{{ formatBytes(data.size) }}</span>
+              <!-- 复选框放到行尾：el-tree 自带的那个由 CSS 隐藏，状态仍由它持有 -->
+              <el-checkbox
+                v-if="data.type !== 'more'"
+                class="node-check"
+                :model-value="node.checked"
+                :indeterminate="node.indeterminate"
+                :disabled="Boolean(data.disabled)"
+                @click.stop
+                @change="(value) => toggleNode(node, value)"
+              />
             </span>
           </template>
         </el-tree>

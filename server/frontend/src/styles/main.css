@@ -334,7 +334,8 @@ a {
 
 .tree-panel {
   min-height: 420px;
-  max-height: calc(100vh - 220px);
+  /* 节点栏和目录栏合并成一行后，树可以多占一点高度 */
+  max-height: calc(100vh - 170px);
   display: flex;
   flex-direction: column;
 }
@@ -343,6 +344,28 @@ a {
   flex: 1;
   overflow: auto;
   padding: 8px 6px 16px;
+}
+
+/* 取件页顶栏：节点选择 + 根目录 + 右侧操作挤在一行 */
+.browse-bar {
+  justify-content: flex-start;
+}
+
+.browse-bar .bar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 勾选框移到行尾：隐掉 el-tree 自带的那个（状态仍由它持有，UI 由节点插槽渲染） */
+.tree-panel .el-tree-node__content > .el-checkbox {
+  display: none;
+}
+
+/* 文件树禁止鼠标选中文字：拖拽滚动时选到一片蓝很难看 */
+.tree-panel .el-tree-node__content {
+  user-select: none;
 }
 
 .tree-node {
@@ -360,16 +383,24 @@ a {
 }
 
 .tree-node .node-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tree-node .node-size {
-  margin-left: auto;
+  margin-left: 8px;
   font-size: 11.5px;
   color: var(--fb-text-muted);
   flex: 0 0 auto;
+}
+
+.tree-node .node-check {
+  flex: 0 0 auto;
+  margin: 0 0 0 10px;
+  height: auto;
 }
 
 /* --- 表格 --- */
