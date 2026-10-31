@@ -185,24 +185,6 @@ function onCheck() {
   checkedCount.value = pickedPaths().length
 }
 
-/**
- * 行尾复选框的处理。
- *
- * `deep` 只对"已经加载过"的目录打开：el-tree 在 deep=true 时会对未加载的
- * 懒节点递归 loadData，勾一个几千文件的目录等于把整棵树拉进浏览器。
- * 未加载的目录只标自己——用户展开时 el-tree 会把 checked 状态传递给子节点
- * （见 node.expand()），提交时这个目录本身也会被 A 端展开，结果一致。
- */
-function toggleNode(node, value) {
-  const deep = Boolean(node.loaded && node.childNodes?.length)
-  treeRef.value?.setChecked(node.data.rel, value, deep)
-  onCheck()
-}
-
-/**
- * 点文件 = 勾选（和改造前一致，不用非去点那个小方框）；
- * 点目录 = 展开（浏览的主要动作），勾整个目录要点复选框。
- */
 function onNodeClick(data, node) {
   if (data.type !== 'file' || !treeRef.value) return
   treeRef.value.setChecked(data.rel, !node.checked)
@@ -374,7 +356,7 @@ onUnmounted(stopWatching)
           @check="onCheck"
           @node-click="onNodeClick"
         >
-          <template #default="{ node, data }">
+          <template #default="{ data }">
             <span class="tree-node">
               <el-icon class="node-icon">
                 <Folder v-if="data.type === 'dir'" />
@@ -383,20 +365,9 @@ onUnmounted(stopWatching)
                 <MoreFilled v-else />
               </el-icon>
               <span class="node-name">{{ data.name }}</span>
-              <!-- 大小列和勾选列始终占位（目录留空），否则目录行会被挤到右边，
-                   三列就对不齐了 -->
+              <!-- 大小列始终占位（目录留空），否则目录行会被挤到右边，就对不齐了 -->
               <span class="node-size">
                 {{ data.type === 'file' ? formatBytes(data.size) : '' }}
-              </span>
-              <span class="node-check">
-                <el-checkbox
-                  v-if="data.type !== 'more'"
-                  :model-value="node.checked"
-                  :indeterminate="node.indeterminate"
-                  :disabled="Boolean(data.disabled)"
-                  @click.stop
-                  @change="(value) => toggleNode(node, value)"
-                />
               </span>
             </span>
           </template>

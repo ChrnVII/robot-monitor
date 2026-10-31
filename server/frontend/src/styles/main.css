@@ -369,9 +369,9 @@ a {
   font-size: 12.5px;
 }
 
-/* 勾选框移到行尾：隐掉 el-tree 自带的那个（状态仍由它持有，UI 由节点插槽渲染） */
+/* 勾选框用 el-tree 原生的（紧跟箭头、在左侧），可读性比贴到行尾好 */
 .tree-panel .el-tree-node__content > .el-checkbox {
-  display: none;
+  margin-right: 8px;
 }
 
 /* 文件树禁止鼠标选中文字：拖拽滚动时选到一片蓝很难看 */
@@ -417,18 +417,6 @@ a {
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--fb-text-muted);
-}
-
-.tree-node .node-check {
-  flex: 0 0 18px;
-  display: flex;
-  justify-content: flex-end;
-  margin: 0 8px 0 12px;
-}
-
-.tree-node .node-check .el-checkbox {
-  margin-right: 0;
-  height: auto;
 }
 
 /* --- 表格 --- */
