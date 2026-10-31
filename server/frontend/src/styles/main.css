@@ -336,6 +336,8 @@ a {
   min-height: 420px;
   /* 节点栏和目录栏合并成一行后，树可以多占一点高度 */
   max-height: calc(100vh - 170px);
+  /* 一行 28px：这个页面要逐行点选，20px 太挤，容易点错行 */
+  --el-tree-node-content-height: 28px;
   display: flex;
   flex-direction: column;
 }
@@ -358,6 +360,15 @@ a {
   gap: 10px;
 }
 
+/* 根目录是只读信息，不能长得像输入框——下拉框已经是那个样子了 */
+.root-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fb-text-muted);
+  font-size: 12.5px;
+}
+
 /* 勾选框移到行尾：隐掉 el-tree 自带的那个（状态仍由它持有，UI 由节点插槽渲染） */
 .tree-panel .el-tree-node__content > .el-checkbox {
   display: none;
@@ -368,13 +379,20 @@ a {
   user-select: none;
 }
 
+/* 插槽内容所在的 label 要撑满整行，否则右侧的大小/勾选列无从对齐 */
+.tree-panel .el-tree-node__label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   font-size: 13.5px;
   width: 100%;
-  padding-right: 8px;
+  padding-right: 4px;
 }
 
 .tree-node .node-icon {
@@ -390,16 +408,26 @@ a {
   white-space: nowrap;
 }
 
+/* 大小列：固定宽度 + 右对齐 + 等宽数字，扫一眼就能比大小。
+   目录行也占着这一列（内容为空），否则目录的勾选框会比文件往右缩。 */
 .tree-node .node-size {
-  margin-left: 8px;
+  flex: 0 0 76px;
+  margin-left: 10px;
+  text-align: right;
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--fb-text-muted);
-  flex: 0 0 auto;
 }
 
 .tree-node .node-check {
-  flex: 0 0 auto;
-  margin: 0 0 0 10px;
+  flex: 0 0 18px;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 8px 0 12px;
+}
+
+.tree-node .node-check .el-checkbox {
+  margin-right: 0;
   height: auto;
 }
 

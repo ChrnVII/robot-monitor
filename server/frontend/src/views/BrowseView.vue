@@ -339,9 +339,10 @@ onUnmounted(stopWatching)
           />
         </el-select>
 
-        <el-tag v-if="currentAgent?.roots?.length" type="info" effect="plain">
+        <span v-if="currentAgent?.roots?.length" class="root-path">
+          <el-icon><FolderOpened /></el-icon>
           <span class="mono">{{ currentAgent.roots[0] }}</span>
-        </el-tag>
+        </span>
 
         <div class="bar-actions">
           <el-button text :disabled="!online" @click="refreshTree">
@@ -367,6 +368,7 @@ onUnmounted(stopWatching)
           :load="loadNode"
           lazy
           show-checkbox
+          :indent="20"
           :props="{ label: 'name', isLeaf: 'leaf', disabled: 'disabled' }"
           node-key="rel"
           @check="onCheck"
@@ -381,17 +383,21 @@ onUnmounted(stopWatching)
                 <MoreFilled v-else />
               </el-icon>
               <span class="node-name">{{ data.name }}</span>
-              <span v-if="data.type === 'file'" class="node-size">{{ formatBytes(data.size) }}</span>
-              <!-- 复选框放到行尾：el-tree 自带的那个由 CSS 隐藏，状态仍由它持有 -->
-              <el-checkbox
-                v-if="data.type !== 'more'"
-                class="node-check"
-                :model-value="node.checked"
-                :indeterminate="node.indeterminate"
-                :disabled="Boolean(data.disabled)"
-                @click.stop
-                @change="(value) => toggleNode(node, value)"
-              />
+              <!-- 大小列和勾选列始终占位（目录留空），否则目录行会被挤到右边，
+                   三列就对不齐了 -->
+              <span class="node-size">
+                {{ data.type === 'file' ? formatBytes(data.size) : '' }}
+              </span>
+              <span class="node-check">
+                <el-checkbox
+                  v-if="data.type !== 'more'"
+                  :model-value="node.checked"
+                  :indeterminate="node.indeterminate"
+                  :disabled="Boolean(data.disabled)"
+                  @click.stop
+                  @change="(value) => toggleNode(node, value)"
+                />
+              </span>
             </span>
           </template>
         </el-tree>
