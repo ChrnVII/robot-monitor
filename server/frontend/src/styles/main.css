@@ -5,6 +5,7 @@
   --fb-text: #1f2430;
   --fb-text-muted: #6b7280;
   --fb-text-faint: #98a2b3;
+  --fb-tree-line: #d5dbe6;
   --fb-accent: #2f6fed;
   --fb-accent-soft: #eaf0ff;
   --fb-success: #16a34a;
@@ -384,6 +385,64 @@ a {
   display: block;
   flex: 1;
   min-width: 0;
+}
+
+/* --- 树状结构线 ---
+   Element Plus 的缩进是给每一行内联 padding-left 的，行与行之间没有公共容器，
+   所以直接在行上画线无法按层对齐。这里把 indent 设为 0，改由子容器的 padding
+   提供缩进；线画在容器左边缘，自然每层各一条。
+   竖线由每个子节点各画一段（而不是由容器画一整条），这样最后一个子节点可以
+   只画到本行中线，形成 └── 而不是拖一条尾巴。 */
+.tree-panel .el-tree-node__children {
+  padding-left: 20px;
+}
+
+.tree-panel .el-tree-node__children > .el-tree-node {
+  position: relative;
+}
+
+/* 展开的节点：从自己这一行的中线往下补一段竖线。
+   EP 给子容器设了 overflow:hidden（折叠动画要用），子项的竖线再怎么往上伸
+   都会被裁在容器顶部，接不上父节点的箭头。所以这段必须画在父节点自己身上，
+   两段在容器边界处正好接上。 */
+.tree-panel .el-tree-node > .el-tree-node__content {
+  position: relative;
+}
+
+.tree-panel .el-tree-node.is-expanded > .el-tree-node__content::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  height: 14px;
+  border-left: 1px solid var(--fb-tree-line);
+}
+
+.tree-panel .el-tree-node__children > .el-tree-node::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  /* 向上多画半行，伸进父节点那一行——否则线条像是从半空中垂下来的，
+     接不上父节点的展开箭头。这一条是看了参考文章才补的。 */
+  top: -14px;
+  height: calc(100% + 14px);
+  border-left: 1px solid var(--fb-tree-line);
+}
+
+/* 最后一个子节点：竖线只画到本行中线（-14 到 +14），形成 └── */
+.tree-panel .el-tree-node__children > .el-tree-node:last-child::before {
+  top: -14px;
+  height: 28px;
+}
+
+/* 横线：从竖线伸向行内，长度故意留出一点空隙，别贴到文字上 */
+.tree-panel .el-tree-node__children > .el-tree-node::after {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 14px;
+  width: 12px;
+  border-top: 1px solid var(--fb-tree-line);
 }
 
 .tree-node {

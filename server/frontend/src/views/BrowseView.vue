@@ -350,7 +350,7 @@ onUnmounted(stopWatching)
           :load="loadNode"
           lazy
           show-checkbox
-          :indent="20"
+          :indent="0"
           :props="{ label: 'name', isLeaf: 'leaf', disabled: 'disabled' }"
           node-key="rel"
           @check="onCheck"
