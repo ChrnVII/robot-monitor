@@ -48,6 +48,10 @@ export const AgentsApi = {
 
 export const TasksApi = {
   create: (payload) => api.post('/api/v1/tasks', payload),
+  // 提交前先统计：勾中目录时，只有 B 遍历过才知道里面有多少文件
+  preview: (payload) => api.post('/api/v1/tasks/preview', payload),
+  // 真正建任务：立即返回 202，任务在后台逐项创建
+  batch: (payload) => api.post('/api/v1/tasks/batch', payload),
   list: (params) => api.get('/api/v1/tasks', { params }),
   get: (taskId) => api.get(`/api/v1/tasks/${taskId}`),
   cancel: (taskId) => api.post(`/api/v1/tasks/${taskId}/cancel`)

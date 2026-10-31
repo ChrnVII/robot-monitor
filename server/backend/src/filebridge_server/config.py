@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     # 建任务前要求磁盘剩余 >= total_size * ratio，避免传到 90% 才失败
     disk_reserve_ratio: float = 1.2
 
+    # --- 批量取件（勾一个目录取整棵树）-----------------------------------
+    # 一次展开的上限。超了就"部分展开"，让用户缩小范围——不做无上限遍历，
+    # 否则误选一个挂载点会把 A 和 B 一起拖死。
+    batch_max_files: int = 5000
+    batch_max_depth: int = 32
+    batch_timeout_seconds: float = 30.0
+    # 后台建任务的并发。受 B 侧 MAX_CONCURRENT_UPLOADS（3）约束，
+    # 这里高一些只是把 B 的上传队列填满，不会真的并发传 7 个。
+    batch_create_concurrency: int = 7
+
     # --- 控制通道 -------------------------------------------------------
     command_timeout_seconds: float = 10.0
     # agent 每 15s 心跳一次，45s 没动静就判离线（容忍丢两拍）

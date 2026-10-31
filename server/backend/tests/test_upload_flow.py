@@ -327,3 +327,131 @@ def test_sse_delivers_task_events(stack):
     assert "task_update" in types
     assert "task_progress" in types
     assert "file_added" in types
+
+
+# --- 批量取件：目录展开 + 批量建任务 -------------------------------------
+
+
+def preview(stack, paths: list[str]) -> dict:
+    response = stack.http.post(
+        "/api/v1/tasks/preview", json={"agent_id": stack.agent_id, "paths": paths}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_preview_expands_directories_recursively(stack):
+    """勾一个目录，A 要能把整棵树的文件数、总大小算准。"""
+    docs = stack.share / "docs"
+    (docs / "sub").mkdir(parents=True)
+    (docs / "a.md").write_bytes(b"a" * 10)
+    (docs / "sub" / "b.md").write_bytes(b"b" * 20)
+    (stack.share / "root.txt").write_bytes(b"c" * 30)
+
+    plan = preview(stack, ["docs"])
+
+    assert plan["file_count"] == 2
+    assert plan["total_bytes"] == 30
+    assert plan["truncated"] is False
+    assert {item["rel"] for item in plan["files"]} == {"docs/a.md", "docs/sub/b.md"}
+    # 目录本身不是任务
+    assert all(item["name"] for item in plan["files"])
+
+
+def test_preview_accepts_mixed_paths_without_duplicates(stack):
+    """同时选目录和它里面的文件，不能算两遍。"""
+    docs = stack.share / "docs"
+    docs.mkdir()
+    (docs / "a.md").write_bytes(b"x" * 5)
+
+    plan = preview(stack, ["docs", "docs/a.md"])
+
+    assert plan["file_count"] == 1
+    assert plan["total_bytes"] == 5
+
+
+def test_preview_reports_missing_path_as_skipped(stack):
+    plan = preview(stack, ["nope.txt"])
+
+    assert plan["file_count"] == 0
+    assert plan["skipped_count"] == 1
+    assert "不存在" in plan["skipped"][0]["reason"] or plan["skipped"][0]["rel"] == "nope.txt"
+
+
+def test_preview_follows_symlink_to_file(stack):
+    """软链接指向根目录内的文件：跟随它，并按目标大小计入。
+
+    list_dir 给的是链接自身的长度，不是目标的——直接用会让合计偏小。
+    """
+    folder = stack.share / "links"
+    folder.mkdir()
+    (folder / "real.txt").write_bytes(b"y" * 9)
+    try:
+        (folder / "l.txt").symlink_to(folder / "real.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("这个文件系统建不了软链接")
+
+    plan = preview(stack, ["links"])
+
+    assert plan["file_count"] == 2
+    assert plan["total_bytes"] == 18
+    assert {item["rel"] for item in plan["files"]} == {"links/real.txt", "links/l.txt"}
+
+
+def test_preview_skips_broken_symlink(stack):
+    folder = stack.share / "broken"
+    folder.mkdir()
+    try:
+        (folder / "dangling").symlink_to(folder / "missing.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("这个文件系统建不了软链接")
+
+    plan = preview(stack, ["broken"])
+
+    assert plan["file_count"] == 0
+    assert plan["skipped_count"] == 1
+
+
+def test_batch_fetch_creates_one_task_per_file(stack):
+    docs = stack.share / "batch"
+    (docs / "x").mkdir(parents=True)
+    (docs / "one.txt").write_bytes(b"1" * 11)
+    (docs / "x" / "two.txt").write_bytes(b"2" * 22)
+
+    plan = preview(stack, ["batch"])
+    assert plan["file_count"] == 2
+
+    accepted = stack.http.post(
+        "/api/v1/tasks/batch",
+        json={"agent_id": stack.agent_id, "files": plan["files"]},
+    )
+    assert accepted.status_code == 202, accepted.text
+    assert accepted.json()["accepted"] == 2
+
+    # 后台建任务：等它们都出现在列表里并跑完
+    def all_done():
+        items = stack.http.get("/api/v1/tasks", params={"limit": 100}).json()["items"]
+        batch = [item for item in items if item["path"].startswith("batch/")]
+        if len(batch) < 2:
+            return None
+        return batch if all(item["status"] in {"done", "failed", "canceled"} for item in batch) else None
+
+    batch = wait_for(all_done, 30, "批量任务没有全部结束")
+    assert all(item["status"] == "done" for item in batch), batch
+
+    files = stack.http.get("/api/v1/files").json()["items"]
+    assert {item["rel_path"] for item in files} == {"batch/one.txt", "batch/x/two.txt"}
+
+
+def test_preview_marks_truncated_when_over_the_limit(stack):
+    """上限不是摆设：超了要明确告诉用户"只展开了一部分"。"""
+    stack.settings.batch_max_files = 1
+    docs = stack.share / "many"
+    docs.mkdir()
+    for index in range(3):
+        (docs / f"f{index}.txt").write_bytes(b"x")
+
+    plan = preview(stack, ["many"])
+
+    assert plan["truncated"] is True
+    assert plan["file_count"] == 1

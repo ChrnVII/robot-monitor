@@ -7,7 +7,7 @@ import { formatBytes } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
 // keep-alive 按 name 点名缓存（见 AppLayout），切到别的页面再回来，
-// 展开的目录、滚动位置、勾选的清单都还在。
+// 展开的目录和滚动位置都还在。
 defineOptions({ name: 'BrowseView' })
 
 const route = useRoute()
@@ -46,16 +46,20 @@ const treeKey = ref(0)
 // 根目录是否已经加载过。用来区分"树还是空的（等它上线要重建）"和
 // "树里已经有用户展开的目录（绝不能重建）"。
 const rootLoaded = ref(false)
-const selected = ref([])
-const submitting = ref(false)
+const treeRef = ref(null)
 const treeLoading = ref(false)
 // 节点列表回来之前不挂载树：否则会拿着"上次记住但已被删掉的 id"先发一次请求，
 // 闪一个 409 提示，然后再被纠正过来。
 const agentsReady = ref(false)
 
+const checkedCount = ref(0)
+const submitting = ref(false)
+const creating = ref(false)
+// 预览结果：确认框的数据源。null 表示确认框关闭。
+const plan = ref(null)
+
 const currentAgent = computed(() => agents.value.find((item) => item.id === agentId.value) || null)
 const online = computed(() => Boolean(currentAgent.value?.online))
-const totalBytes = computed(() => selected.value.reduce((sum, item) => sum + (item.size || 0), 0))
 
 /**
  * 页面所处的状态。以前只有 `!online` 一个布尔，于是"还没加载出节点列表"
@@ -133,59 +137,96 @@ async function loadNode(node, resolve) {
   }
 }
 
-function isSelected(data) {
-  return selected.value.some((item) => item.rel === data.rel)
-}
-
-function onNodeClick(data) {
-  if (data.type !== 'file') return
-  toggle(data)
-}
-
-function toggle(data) {
-  if (data.type !== 'file') return
-  const index = selected.value.findIndex((item) => item.rel === data.rel)
-  if (index >= 0) selected.value.splice(index, 1)
-  else selected.value.push({ rel: data.rel, name: data.name, size: data.size })
-}
-
-function removeAt(index) {
-  selected.value.splice(index, 1)
-}
-
 function refreshTree() {
   treeKey.value += 1
   rootLoaded.value = false
+  clearSelection()
 }
 
 function changeAgent() {
-  selected.value = []
   refreshTree()
   rememberAgent(agentId.value)
   syncQuery()
 }
 
+function clearSelection() {
+  treeRef.value?.setCheckedKeys([])
+  checkedCount.value = 0
+}
+
+/** 某个路径的祖先目录里，有没有被勾中的。 */
+function hasCheckedAncestor(rel, dirs) {
+  let index = rel.lastIndexOf('/')
+  while (index > 0) {
+    if (dirs.has(rel.slice(0, index))) return true
+    index = rel.lastIndexOf('/', index - 1)
+  }
+  return false
+}
+
+/**
+ * 当前勾选的路径（文件 + 目录混合）。
+ *
+ * 勾中的目录直接作为一个路径提交——**不展开成它的子项**：懒加载的树根本
+ * 不知道未展开的目录里有什么，只有 B 遍历过才算数。所以父目录被勾中时，
+ * 它下面那些"顺带被勾"的项必须丢掉，否则同一批文件会建两次任务。
+ */
+function pickedPaths() {
+  const nodes = treeRef.value?.getCheckedNodes() || []
+  if (!nodes.length) return []
+  const dirs = new Set(nodes.filter((node) => node.type === 'dir').map((node) => node.rel))
+  return nodes
+    .filter((node) => node.rel && node.type !== 'more')
+    .filter((node) => !hasCheckedAncestor(node.rel, dirs))
+    .map((node) => node.rel)
+}
+
+function onCheck() {
+  checkedCount.value = pickedPaths().length
+}
+
+/**
+ * 点文件 = 勾选（和改造前一致，不用非去点那个小方框）；
+ * 点目录 = 展开（浏览的主要动作），勾整个目录要点复选框。
+ */
+function onNodeClick(data, node) {
+  if (data.type !== 'file' || !treeRef.value) return
+  treeRef.value.setChecked(data.rel, !node.checked)
+  onCheck()
+}
+
+/** 提交前先问 A：这些路径到底会变成多少个文件、多大。 */
 async function submit() {
-  if (!selected.value.length || submitting.value) return
+  const paths = pickedPaths()
+  if (!paths.length || submitting.value) return
   submitting.value = true
-
-  const failures = []
-  for (const item of selected.value) {
-    try {
-      await TasksApi.create({ agent_id: agentId.value, path: item.rel })
-    } catch (error) {
-      failures.push(`${item.name}：${errorMessage(error)}`)
-    }
+  try {
+    const { data } = await TasksApi.preview({ agent_id: agentId.value, paths })
+    plan.value = data
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  } finally {
+    submitting.value = false
   }
-  submitting.value = false
+}
 
-  if (failures.length) {
-    ElMessage.error(failures.length === 1 ? failures[0] : `${failures[0]}（共 ${failures.length} 个失败）`)
-    return
+async function confirmSubmit() {
+  if (!plan.value?.files?.length || creating.value) return
+  creating.value = true
+  try {
+    const { data } = await TasksApi.batch({
+      agent_id: agentId.value,
+      files: plan.value.files
+    })
+    ElMessage.success(`已提交 ${data.accepted} 个取件任务`)
+    plan.value = null
+    clearSelection()
+    router.push({ name: 'tasks' })
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  } finally {
+    creating.value = false
   }
-  ElMessage.success(`已提交 ${selected.value.length} 个取件任务`)
-  selected.value = []
-  router.push({ name: 'tasks' })
 }
 
 // 同一条路由只改 query 时组件不会重建（前进/后退、或从别处跳到
@@ -240,7 +281,11 @@ onActivated(() => {
   loadAgents()
 })
 
-onDeactivated(stopWatching)
+onDeactivated(() => {
+  stopWatching()
+  // 确认框是 teleport 到 body 的，缓存组件里不会自动消失
+  plan.value = null
+})
 onUnmounted(stopWatching)
 </script>
 
@@ -263,7 +308,7 @@ onUnmounted(stopWatching)
           <span class="mono">{{ currentAgent.roots[0] }}</span>
         </el-tag>
 
-        <div style="margin-left: auto; display: flex; gap: 10px">
+        <div style="margin-left: auto">
           <el-button text :disabled="!online" @click="refreshTree">
             <el-icon><Refresh /></el-icon>
             <span style="margin-left: 4px">刷新目录</span>
@@ -292,81 +337,114 @@ onUnmounted(stopWatching)
       style="margin-bottom: 18px"
     />
 
-    <div class="browse-grid">
-      <div class="panel tree-panel">
-        <div class="panel-head">
-          <h2>目录</h2>
-          <span class="muted">点击文件加入右侧清单</span>
-        </div>
-        <div class="tree-scroll" v-loading="viewState === 'loading' || treeLoading">
-          <el-tree
-            v-if="viewState === 'online' || viewState === 'offline'"
-            :key="`${agentId}-${treeKey}`"
-            :load="loadNode"
-            lazy
-            :props="{ label: 'name', isLeaf: 'leaf', disabled: 'disabled' }"
-            node-key="rel"
-            highlight-current
-            @node-click="onNodeClick"
-          >
-            <template #default="{ data }">
-              <span class="tree-node" :class="{ selected: isSelected(data) }">
-                <el-icon class="node-icon">
-                  <Folder v-if="data.type === 'dir'" />
-                  <Document v-else-if="data.type === 'file'" />
-                  <Link v-else-if="data.type === 'symlink'" />
-                  <MoreFilled v-else />
-                </el-icon>
-                <span class="node-name">{{ data.name }}</span>
-                <span v-if="data.type === 'file'" class="node-size">{{ formatBytes(data.size) }}</span>
-                <el-icon v-if="isSelected(data)" class="check"><Select /></el-icon>
-              </span>
-            </template>
-          </el-tree>
-          <div
-            v-if="viewState === 'empty'"
-            class="muted"
-            style="padding: 40px 12px; text-align: center"
-          >
-            还没有接入任何节点
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <h2>取件清单（{{ selected.length }}）</h2>
-          <el-button v-if="selected.length" text @click="selected = []">清空</el-button>
-        </div>
-
-        <div class="panel-body">
-          <div v-if="!selected.length" class="muted" style="padding: 32px 0; text-align: center">
-            左侧点击文件加入清单。目录需要先展开。
-          </div>
-          <div v-else class="selected-list">
-            <div v-for="(item, index) in selected" :key="item.rel" class="selected-row">
-              <el-icon style="color: #8f9bb3"><Document /></el-icon>
-              <span class="name" :title="item.rel">{{ item.rel }}</span>
-              <span class="muted mono">{{ formatBytes(item.size) }}</span>
-              <el-button text size="small" @click="removeAt(index)">
-                <el-icon><Close /></el-icon>
-              </el-button>
-            </div>
-          </div>
-        </div>
-
-        <div class="submit-bar">
-          <span class="muted">合计 {{ formatBytes(totalBytes) }}</span>
+    <div class="panel tree-panel">
+      <div class="panel-head">
+        <h2>目录</h2>
+        <div style="display: flex; align-items: center; gap: 14px">
+          <span class="muted">点箭头展开 · 勾目录 = 取整个目录</span>
           <el-button
             type="primary"
             :loading="submitting"
-            :disabled="!selected.length || !online"
+            :disabled="!online || !checkedCount"
             @click="submit"
           >
             提交取件
           </el-button>
         </div>
       </div>
+
+      <div class="tree-scroll" v-loading="viewState === 'loading' || treeLoading">
+        <el-tree
+          v-if="viewState === 'online' || viewState === 'offline'"
+          ref="treeRef"
+          :key="`${agentId}-${treeKey}`"
+          :load="loadNode"
+          lazy
+          show-checkbox
+          check-strictly
+          :props="{ label: 'name', isLeaf: 'leaf', disabled: 'disabled' }"
+          node-key="rel"
+          @check="onCheck"
+          @node-click="onNodeClick"
+        >
+          <template #default="{ data }">
+            <span class="tree-node">
+              <el-icon class="node-icon">
+                <Folder v-if="data.type === 'dir'" />
+                <Document v-else-if="data.type === 'file'" />
+                <Link v-else-if="data.type === 'symlink'" />
+                <MoreFilled v-else />
+              </el-icon>
+              <span class="node-name">{{ data.name }}</span>
+              <span v-if="data.type === 'file'" class="node-size">{{ formatBytes(data.size) }}</span>
+            </span>
+          </template>
+        </el-tree>
+        <div
+          v-if="viewState === 'empty'"
+          class="muted"
+          style="padding: 40px 12px; text-align: center"
+        >
+          还没有接入任何节点
+        </div>
+      </div>
     </div>
+
+    <el-dialog
+      :model-value="!!plan"
+      title="确认取件"
+      width="520px"
+      @update:model-value="plan = null"
+    >
+      <template v-if="plan">
+        <p style="margin-top: 0">
+          将取 <strong>{{ plan.file_count }}</strong> 个文件，共
+          <strong>{{ formatBytes(plan.total_bytes) }}</strong>。
+        </p>
+
+        <el-alert
+          v-if="plan.truncated"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="目录太大，只展开了一部分"
+          description="上面这个数量不是全部。请勾选更具体的子目录，分批提交。"
+          style="margin-bottom: 12px"
+        />
+
+        <div v-if="plan.skipped_count" class="muted" style="font-size: 13px">
+          <div style="margin-bottom: 4px">
+            跳过 {{ plan.skipped_count }} 项（不参与取件）：
+          </div>
+          <div
+            v-for="item in plan.skipped.slice(0, 5)"
+            :key="`${item.rel}-${item.reason}`"
+            class="mono"
+            style="font-size: 12px; line-height: 1.7; word-break: break-all"
+          >
+            {{ item.rel || '—' }} · {{ item.reason }}
+          </div>
+          <div v-if="plan.skipped_count > 5" style="font-size: 12px">
+            …另有 {{ plan.skipped_count - 5 }} 项
+          </div>
+        </div>
+
+        <p v-if="!plan.file_count" class="muted" style="margin-bottom: 0">
+          没有可取的文件，换一个目录试试。
+        </p>
+      </template>
+
+      <template #footer>
+        <el-button :disabled="creating" @click="plan = null">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="creating"
+          :disabled="!plan?.file_count"
+          @click="confirmSubmit"
+        >
+          开始取件
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>

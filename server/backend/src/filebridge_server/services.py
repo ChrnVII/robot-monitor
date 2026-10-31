@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -67,6 +68,8 @@ class TaskService:
         self.storage = storage
         self.bus = bus
         self.auth = auth
+        # 后台批量建任务的强引用：asyncio 只保留弱引用，不留住会被 GC 掉
+        self._batch_jobs: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # 查询
@@ -189,6 +192,205 @@ class TaskService:
         self._publish_task(task_id, extra={"agent_id": agent_id, "filename": filename})
         logger.info("task %s created for %s:%s (%d bytes)", task_id, agent_id, rel, total_size)
         return await self.get_task(task_id)
+
+    # ------------------------------------------------------------------
+    # 批量取件：目录展开 + 批量建任务
+    # ------------------------------------------------------------------
+
+    async def preview_selection(self, agent_id: str, paths: list[str]) -> dict[str, Any]:
+        """把"一组路径（文件或目录，可混合）"展开成确定的文件清单。
+
+        只做统计，不建任何任务——用户得先知道"这个目录里到底有多少东西"，
+        再决定要不要取。这也是为什么目录勾选不能由前端算：懒加载的树不知道
+        未展开的子目录里有什么，只有 B 自己遍历过才算"确定"。
+
+        边界是硬的：超过 max_files / max_depth / timeout 就停下来，
+        返回 `truncated=True`，让用户自己缩小范围，而不是在这里无限遍历。
+        """
+        if not self.hub.is_online(agent_id):
+            raise ApiError(409, ErrorCode.AGENT_OFFLINE, "节点不在线，无法统计目录内容")
+
+        files: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        seen: set[str] = set()
+        truncated = False
+        deadline = time.monotonic() + self.settings.batch_timeout_seconds
+        dirs: list[tuple[str, int]] = []
+
+        timeout = self.settings.command_timeout_seconds
+
+        # ① 先看用户选的是文件还是目录。选中项通常只有几个，逐个 stat 很便宜。
+        for raw in paths:
+            try:
+                rel = normalize_client_path(raw)
+            except ValueError as exc:
+                skipped.append({"rel": str(raw), "reason": str(exc)})
+                continue
+            if not rel:
+                skipped.append({"rel": "/", "reason": "根目录不能整目录取件"})
+                continue
+
+            try:
+                info = await self.hub.request(
+                    agent_id, CommandName.STAT_FILE, {"rel": rel}, timeout=timeout
+                )
+            except AgentError as exc:
+                skipped.append({"rel": rel, "reason": exc.message})
+                continue
+
+            if info.get("is_dir"):
+                dirs.append((rel, 0))
+            elif rel not in seen:
+                seen.add(rel)
+                files.append(
+                    {
+                        "rel": rel,
+                        "name": str(info.get("name") or rel),
+                        "size": int(info.get("size") or 0),
+                    }
+                )
+
+        # ② 广度优先遍历目录。list_dir 自带 size（来自 scandir），不需要逐个 stat。
+        while dirs and not truncated:
+            if time.monotonic() > deadline:
+                truncated = True
+                skipped.append({"rel": "", "reason": f"统计超过 {self.settings.batch_timeout_seconds:g}s，已部分展开"})
+                break
+
+            rel, depth = dirs.pop(0)
+            if depth >= self.settings.batch_max_depth:
+                truncated = True
+                skipped.append({"rel": rel, "reason": f"目录层级超过 {self.settings.batch_max_depth} 层"})
+                break
+
+            cursor: str | None = None
+            while True:
+                try:
+                    page = await self.hub.request(
+                        agent_id,
+                        CommandName.LIST_DIR,
+                        {"rel": rel, "cursor": cursor, "limit": 500},
+                        timeout=timeout,
+                    )
+                except AgentError as exc:
+                    skipped.append({"rel": rel, "reason": exc.message})
+                    break
+
+                for entry in page.get("entries") or []:
+                    kind = entry.get("type")
+                    entry_rel = str(entry.get("rel") or "")
+                    if not entry_rel:
+                        continue
+                    if kind == "dir":
+                        dirs.append((entry_rel, depth + 1))
+                        continue
+                    if kind != "file":
+                        # 符号链接：list_dir 给的是链接自身的 size，不是目标的。
+                        # 这里补一次 stat 拿真实大小——沙箱会校验目标是否在根目录内，
+                        # 跟着走不出去；出不去或断链就记进 skipped。
+                        try:
+                            info = await self.hub.request(
+                                agent_id,
+                                CommandName.STAT_FILE,
+                                {"rel": entry_rel},
+                                timeout=timeout,
+                            )
+                        except AgentError as exc:
+                            skipped.append({"rel": entry_rel, "reason": exc.message})
+                            continue
+                        if info.get("is_dir"):
+                            # 指向目录的链接不展开：容易成环，且没有任何收益
+                            skipped.append({"rel": entry_rel, "reason": "指向目录的符号链接不展开"})
+                            continue
+                        entry = info
+
+                    if entry_rel in seen:
+                        continue
+                    seen.add(entry_rel)
+                    files.append(
+                        {
+                            "rel": entry_rel,
+                            "name": str(entry.get("name") or entry_rel),
+                            "size": int(entry.get("size") or 0),
+                        }
+                    )
+                    if len(files) > self.settings.batch_max_files:
+                        truncated = True
+                        break
+
+                if truncated or not page.get("next_cursor"):
+                    break
+                cursor = str(page["next_cursor"])
+
+        if len(files) > self.settings.batch_max_files:
+            files = files[: self.settings.batch_max_files]
+            truncated = True
+            skipped.append(
+                {"rel": "", "reason": f"超过单次 {self.settings.batch_max_files} 个文件的上限"}
+            )
+
+        return {
+            "files": files,
+            "file_count": len(files),
+            "total_bytes": sum(item["size"] for item in files),
+            "skipped": skipped[:50],
+            "skipped_count": len(skipped),
+            "truncated": truncated,
+        }
+
+    async def create_tasks_from_files(
+        self, agent_id: str, files: list[dict[str, Any]], *, actor: str = "admin"
+    ) -> dict[str, Any]:
+        """按清单批量建任务。
+
+        立刻返回，真正的建任务在后台跑：每个文件都要 stat → 磁盘预检 →
+        预分配 .part → start_upload，几百个塞进一个 HTTP 请求必然超时。
+        """
+        if not files:
+            raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, "没有可提交的文件")
+        if not self.hub.is_online(agent_id):
+            raise ApiError(409, ErrorCode.AGENT_OFFLINE, "节点不在线，无法下发取件任务")
+
+        total_bytes = sum(int(item.get("size") or 0) for item in files)
+        # 整批预检：单项各自检查的话，每一项都过得去、加起来却放不下，
+        # 就会传一半才炸。
+        try:
+            self.storage.ensure_capacity(total_bytes)
+        except StorageError as exc:
+            raise ApiError(507, exc.code, exc.message) from exc
+
+        job = asyncio.create_task(self._run_batch(agent_id, files, actor))
+        self._batch_jobs.add(job)
+        job.add_done_callback(self._batch_jobs.discard)
+        return {"accepted": len(files), "total_bytes": total_bytes}
+
+    async def _run_batch(
+        self, agent_id: str, files: list[dict[str, Any]], actor: str
+    ) -> None:
+        semaphore = asyncio.Semaphore(self.settings.batch_create_concurrency)
+        failed = 0
+
+        async def one(item: dict[str, Any]) -> None:
+            nonlocal failed
+            async with semaphore:
+                try:
+                    await self.create_task(agent_id, str(item["rel"]), actor=actor)
+                except ApiError as exc:
+                    failed += 1
+                    logger.info("batch item %s skipped: %s", item.get("rel"), exc.message)
+                except Exception:  # 单项失败不能拖垮整批
+                    failed += 1
+                    logger.exception("batch item %s failed", item.get("rel"))
+
+        await asyncio.gather(*(one(item) for item in files))
+
+        await self.auth.audit(
+            actor, "task.batch", target=agent_id, detail=f"files={len(files)} failed={failed}"
+        )
+        self.bus.publish(
+            "batch_done", {"agent_id": agent_id, "total": len(files), "failed": failed}
+        )
+        logger.info("batch for %s done: %d file(s), %d failed", agent_id, len(files), failed)
 
     # ------------------------------------------------------------------
     # 取消
