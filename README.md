@@ -95,14 +95,14 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 ```bash
 ./dev.sh passwd                    # 改密码（立即生效，所有已登录会话失效）
 ./dev.sh pending                   # 看有没有待批准的新设备
-./dev.sh approve <id>              # 批准（第一台之后需要，除非 policy=open）
+./dev.sh approve <id>              # 命令行批准（网页「节点」页也能点）
 ./dev.sh list-agents
 ./dev.sh revoke-token <agent_id>
 ```
 
-> 新增设备默认要人工批准一次（`FILEBRIDGE_ENROLL_POLICY=first`）：网页「节点」页
-> 会顶出「待批准接入」，点批准即可，也可以用 `./dev.sh pending` / `approve`。
-> 内网完全可信的话，设 `FILEBRIDGE_ENROLL_POLICY=open` 就是"填 IP 即接入"。
+> **任何新增设备都要你批准**（默认 `FILEBRIDGE_ENROLL_POLICY=closed`，第一台也一样）。
+> B 启动后会在 A 的「节点」页顶出「待批准接入」表格，点 **批准** 即可，不用敲命令。
+> 只有想让新机器免审接入时才改成 `first`（空库首台免审）或 `open`（全部免审）。
 
 生产构建：`./dev.sh build` → `server/frontend/dist` 由 FastAPI 直接托管，
 服务器上不需要 Node。

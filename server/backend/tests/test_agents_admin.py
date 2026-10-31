@@ -289,3 +289,17 @@ async def _drain(queue) -> list[dict]:
     while not queue.empty():
         items.append(queue.get_nowait())
     return items
+
+
+def test_stats_exposes_pending_count_for_the_sidebar_badge(tmp_path):
+    """侧栏的小红点靠 stats.pending_enrollments；批完必须回零。"""
+    _settings, app = make_app(tmp_path, enroll_policy="closed")
+    with TestClient(app) as client:
+        login(client)
+        assert client.get("/api/v1/system/stats").json()["pending_enrollments"] == 0
+
+        pending_id = enroll(client, "lab-06")["pending_id"]
+        assert client.get("/api/v1/system/stats").json()["pending_enrollments"] == 1
+
+        client.post(f"/api/v1/agents/pending/{pending_id}/approve")
+        assert client.get("/api/v1/system/stats").json()["pending_enrollments"] == 0

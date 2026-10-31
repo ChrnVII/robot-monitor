@@ -39,6 +39,11 @@ async def stats(ctx: Context) -> dict[str, Any]:
     used = await ctx.db.fetchval(
         "SELECT COALESCE(SUM(size), 0) FROM files WHERE deleted_at IS NULL", default=0
     )
+    # 侧栏「节点」上的小红点靠它。放在 stats 里而不是单独一个接口：
+    # AppLayout 本来就在轮询 stats，多一个字段比多一次请求便宜。
+    pending = await ctx.db.fetchval(
+        "SELECT COUNT(*) FROM enroll_requests WHERE status = 'pending'", default=0
+    )
     return {
         "version": __version__,
         "protocol": PROTOCOL_VERSION,
@@ -47,6 +52,7 @@ async def stats(ctx: Context) -> dict[str, Any]:
         "trashed": int(trashed),
         "library_bytes": int(used),
         "agents_online": len(ctx.hub.online_ids()),
+        "pending_enrollments": int(pending),
         "sse_subscribers": ctx.bus.subscriber_count,
         "server_time": time.time(),
     }

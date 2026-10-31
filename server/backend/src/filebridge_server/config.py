@@ -76,10 +76,10 @@ class Settings(BaseSettings):
     heartbeat_sweep_seconds: float = 5.0
 
     # --- 设备注册 -------------------------------------------------------
-    # first : 库里一台节点都没有时免审（默认，第一台机器零配置接入）
+    # closed: 全部要人工批准（默认）——批准在网页「节点」页点，不用敲 CLI
+    # first : 库里一台节点都没有时免审（第一台机器零配置接入）
     # open  : 任何请求都自动登记（完全可信的内网）
-    # closed: 全部需要 filebridge-server approve
-    enroll_policy: Literal["first", "open", "closed"] = "first"
+    enroll_policy: Literal["first", "open", "closed"] = "closed"
     enroll_rate_limit_per_minute: int = 20
 
     # --- 限流 -----------------------------------------------------------

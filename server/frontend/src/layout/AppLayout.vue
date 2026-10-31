@@ -12,7 +12,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const { connected, connect, disconnect, on, onReconnect } = useLiveEvents()
 
-const stats = ref({ disk_free_bytes: 0, agents_online: 0, files: 0 })
+const stats = ref({ disk_free_bytes: 0, agents_online: 0, files: 0, pending_enrollments: 0 })
 const title = computed(() => route.meta.title || 'FileBridge')
 
 const menu = [
@@ -46,7 +46,11 @@ onMounted(() => {
   connect()
   onReconnect(loadStats)
   offEvent = on((event) => {
-    if (['agent_online', 'agent_offline', 'file_added'].includes(event.type)) {
+    if (
+      ['agent_online', 'agent_offline', 'file_added', 'enroll_pending', 'enroll_resolved'].includes(
+        event.type
+      )
+    ) {
       loadStats()
     }
   })
@@ -77,6 +81,13 @@ onUnmounted(() => {
         >
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
+          <span
+            v-if="item.name === 'nodes' && stats.pending_enrollments"
+            class="nav-badge"
+            :title="`${stats.pending_enrollments} 台设备等待批准`"
+          >
+            {{ stats.pending_enrollments }}
+          </span>
         </router-link>
       </nav>
 

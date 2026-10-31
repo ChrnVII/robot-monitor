@@ -152,7 +152,7 @@ async def _wait_for_approval(
             if body.get("status") == "pending":
                 if time.monotonic() - last_note > 30:
                     last_note = time.monotonic()
-                    print(f"   仍在等待批准（filebridge-server approve {pending_id[:10]}）")
+                    print(f"   仍在等待批准：到 A 的「节点」页点批准（或 filebridge-server approve {pending_id[:10]}）")
                 continue
             return _persist(config, body)
 

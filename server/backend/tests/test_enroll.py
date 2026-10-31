@@ -60,8 +60,29 @@ def authenticate(settings: Settings, token: str) -> bool:
     return asyncio.run(_with_auth(settings, lambda auth: auth.authenticate_agent(token))) is not None
 
 
-def test_first_device_enrolls_without_approval(tmp_path):
+def test_default_policy_requires_approval_even_for_the_first_device(tmp_path):
+    """默认 closed：第一台也要管理员在网页上点批准。
+
+    这条钉住的是"默认安全"。之前默认是 first（首台免审），等于把
+    "部署完成→第一台 B 连上"这段窗口交给了任何能连到 A 的机器。
+    """
     settings, app = make_app(tmp_path)
+    with TestClient(app) as client:
+        response = enroll(client, hostname="lab-01", root_path="/srv/share")
+
+        assert response.status_code == 202, response.text
+        assert response.json()["status"] == "pending"
+
+        pending_id = response.json()["pending_id"]
+        assert approve(settings, pending_id) is True
+        token = client.get(f"/internal/enroll/{pending_id}").json()["token"]
+        assert token.startswith("fba_")
+
+    assert authenticate(settings, token)
+
+
+def test_first_device_enrolls_without_approval(tmp_path):
+    settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         response = enroll(client, hostname="lab-01", root_path="/srv/share")
 
@@ -74,7 +95,7 @@ def test_first_device_enrolls_without_approval(tmp_path):
 
 
 def test_second_device_goes_to_pending_under_first_policy(tmp_path):
-    _settings, app = make_app(tmp_path)
+    _settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         assert enroll(client, hostname="lab-01").status_code == 200
 
@@ -112,7 +133,7 @@ def test_closed_policy_requires_approval_even_for_the_first(tmp_path):
 
 
 def test_approved_request_can_be_claimed_only_once(tmp_path):
-    settings, app = make_app(tmp_path)
+    settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         enroll(client, hostname="lab-01")
         pending_id = enroll(client, hostname="lab-02").json()["pending_id"]
@@ -129,7 +150,7 @@ def test_approved_request_can_be_claimed_only_once(tmp_path):
 
 
 def test_rejected_request_is_forbidden_on_claim(tmp_path):
-    settings, app = make_app(tmp_path)
+    settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         enroll(client, hostname="lab-01")
         pending_id = enroll(client, hostname="lab-02").json()["pending_id"]
@@ -146,7 +167,7 @@ def test_unknown_pending_id_is_404(tmp_path):
 
 def test_pending_request_never_stores_the_token(tmp_path):
     """待办表不该成为凭据的第二个存放点。"""
-    settings, app = make_app(tmp_path)
+    settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         enroll(client, hostname="lab-01")
         pending_id = enroll(client, hostname="lab-02").json()["pending_id"]
@@ -166,7 +187,7 @@ def test_pending_request_never_stores_the_token(tmp_path):
 
 
 def test_rotate_with_old_token(tmp_path):
-    settings, app = make_app(tmp_path)
+    settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         first = enroll(client, hostname="lab-01").json()
 
@@ -184,7 +205,7 @@ def test_rotate_with_old_token(tmp_path):
 
 
 def test_rotate_with_invalid_token_is_rejected(tmp_path):
-    _settings, app = make_app(tmp_path)
+    _settings, app = make_app(tmp_path, enroll_policy="first")
     with TestClient(app) as client:
         first = enroll(client, hostname="lab-01").json()
 

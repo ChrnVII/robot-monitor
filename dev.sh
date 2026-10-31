@@ -108,8 +108,8 @@ case "$command" in
   test                      跑两个项目的测试（含两端协议契约测试）
   lint / format             ruff 检查 / 格式化
   passwd                    改管理员密码（立即生效，不用重启）
-  pending                   列出待批准的设备
-  approve / reject <id>     批准或拒绝一台新设备
+  pending                   列出待批准的设备（网页「节点」页也能看/批）
+  approve / reject <id>     命令行批准或拒绝（日常用网页点即可）
   hash-password             兼容用：生成密码哈希（不再需要，密码存在库里）
   issue-token --name X      兼容用：手工签发 agent token（默认自动注册）
   revoke-token <agent_id>   吊销 agent token
