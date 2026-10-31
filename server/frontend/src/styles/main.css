@@ -394,55 +394,60 @@ a {
    竖线由每个子节点各画一段（而不是由容器画一整条），这样最后一个子节点可以
    只画到本行中线，形成 └── 而不是拖一条尾巴。 */
 .tree-panel .el-tree-node__children {
-  padding-left: 20px;
+  padding-left: 24px;
 }
 
 .tree-panel .el-tree-node__children > .el-tree-node {
   position: relative;
 }
 
-/* 展开的节点：从自己这一行的中线往下补一段竖线。
-   EP 给子容器设了 overflow:hidden（折叠动画要用），子项的竖线再怎么往上伸
-   都会被裁在容器顶部，接不上父节点的箭头。所以这段必须画在父节点自己身上，
-   两段在容器边界处正好接上。 */
 .tree-panel .el-tree-node > .el-tree-node__content {
   position: relative;
 }
 
+/* 展开的节点：从本行中线往下补一段竖线，接上子容器顶部的竖线。
+   EP 给子容器设了 overflow:hidden（折叠动画要用），子项的竖线伸不进父行，
+   断开的那 14px 必须画在父节点自己身上。 */
 .tree-panel .el-tree-node.is-expanded > .el-tree-node__content::after {
   content: '';
   position: absolute;
-  left: 0;
+  left: 5px;
   top: 14px;
   height: 14px;
   border-left: 1px solid var(--fb-tree-line);
 }
 
+/* 竖线：每个子节点各画一段。非最后一个画满整段（含自己的子树），
+   最后一个只画到本行中线，收成 └。 */
 .tree-panel .el-tree-node__children > .el-tree-node::before {
   content: '';
   position: absolute;
-  left: -20px;
-  /* 向上多画半行，伸进父节点那一行——否则线条像是从半空中垂下来的，
-     接不上父节点的展开箭头。这一条是看了参考文章才补的。 */
+  left: -19px;
   top: -14px;
   height: calc(100% + 14px);
   border-left: 1px solid var(--fb-tree-line);
 }
 
-/* 最后一个子节点：竖线只画到本行中线（-14 到 +14），形成 └── */
 .tree-panel .el-tree-node__children > .el-tree-node:last-child::before {
   top: -14px;
   height: 28px;
 }
 
-/* 横线：从竖线伸向行内，长度故意留出一点空隙，别贴到文字上 */
+/* 横线：从竖线一直连到行内。目录行连到展开箭头前（19px），
+   文件行没有箭头，直接连到勾选框（19 + 26）。 */
 .tree-panel .el-tree-node__children > .el-tree-node::after {
   content: '';
   position: absolute;
-  left: -20px;
+  left: -19px;
   top: 14px;
-  width: 12px;
+  width: 19px;
   border-top: 1px solid var(--fb-tree-line);
+}
+
+.tree-panel
+  .el-tree-node__children
+  > .el-tree-node:has(> .el-tree-node__content > .el-tree-node__expand-icon.is-leaf)::after {
+  width: 45px;
 }
 
 .tree-node {
