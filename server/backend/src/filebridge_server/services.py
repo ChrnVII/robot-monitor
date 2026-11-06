@@ -647,6 +647,15 @@ class TaskService:
             keep = exc.code is ErrorCode.CHECKSUM_MISMATCH
             await self._fail_upload(upload_id, exc.code, exc.message, keep_staging=keep)
             raise ApiError(409 if keep else 400, exc.code, exc.message) from exc
+        except Exception as exc:
+            # finalize 除了 StorageError 还会抛 OSError：mkdir 没权限、os.replace
+            # 撞上 ENOSPC、读 staging 时盘掉了。这些都不是"文件传坏了"，但后果一样——
+            # 不在这里收尾的话，upload 会永久停在 verifying，而 sweep 只扫 uploading、
+            # pending_uploads 也不会把它报给 B，于是任务页永远转圈、.part 永远占盘。
+            # CancelledError 继承 BaseException，所以服务取消时不会被这里吞掉。
+            logger.exception("finalize for upload %s blew up", upload_id)
+            await self._fail_upload(upload_id, ErrorCode.INTERNAL, f"落盘失败：{exc}")
+            raise ApiError(500, ErrorCode.INTERNAL, f"落盘失败：{exc}") from exc
 
         now = time.time()
         stored_path = str(self.storage.final_path(row["agent_id"], file_id).relative_to(self.settings.storage_dir))
@@ -794,15 +803,28 @@ class TaskService:
             logger.info("removed %d orphan staging file(s)", len(removed))
 
     async def sweep_idle_uploads(self) -> int:
-        """空闲超时的上传会话回收。B 断线后没人续传的，30 分钟就清掉。"""
+        """空闲超时的上传会话回收。B 断线后没人续传的，30 分钟就清掉。
+
+        连 `verifying` 一起扫是兜底而非正常路径：进入这个状态后只有一个 await
+        在跑（重算 sha256），正常情况下几十秒内就走到 done/failed。它之所以需要
+        兜底，是因为除了 `complete_upload` 自己 catch 的错误，还有进程被 kill、
+        连接被掐断这类外部中断——那些情况下没有任何人会把状态推走。
+
+        用 30 分钟的 `updated_at` 做门槛就不会误杀正在校验的上传：即便 20GB 在
+        慢盘上要跑两分多钟，离 30 分钟也差得远。
+        """
         cutoff = time.time() - self.settings.upload_idle_minutes * 60
         rows = await self.db.fetchall(
-            "SELECT id FROM uploads WHERE status = ? AND updated_at < ?", (UPLOADING, cutoff)
+            "SELECT id, status FROM uploads WHERE status IN (?, ?) AND updated_at < ?",
+            (UPLOADING, VERIFYING, cutoff),
         )
         for row in rows:
-            await self._fail_upload(
-                row["id"], ErrorCode.TIMEOUT, "上传会话空闲超时，已回收"
+            message = (
+                "校验阶段长时间没有结果，已回收"
+                if row["status"] == VERIFYING
+                else "上传会话空闲超时，已回收"
             )
+            await self._fail_upload(row["id"], ErrorCode.TIMEOUT, message)
         return len(rows)
 
     # ------------------------------------------------------------------

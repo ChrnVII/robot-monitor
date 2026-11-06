@@ -110,7 +110,7 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 ### 测试
 
 ```bash
-./dev.sh test      # protocol + agent + backend 全跑（当前 agent 112 + backend 93，1 条按平台跳过）
+./dev.sh test      # protocol + agent + backend 全跑（当前 agent 113 + backend 117；软链接相关的用例在非 Linux 开发机自动跳过）
 ./dev.sh lint
 ```
 

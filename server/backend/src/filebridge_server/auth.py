@@ -15,6 +15,7 @@ token 比较一律走 `hmac.compare_digest`。`==` 会在第一个不同字节�
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -50,6 +51,17 @@ def verify_password(password: str, stored_hash: str) -> bool:
         return _hasher.verify(stored_hash, password)
     except (VerificationError, InvalidHashError):
         return False
+
+
+async def verify_password_async(password: str, stored_hash: str) -> bool:
+    """在工作线程里校验密码。
+
+    Argon2 是刻意的慢哈希：默认参数一次约 40ms 纯 CPU、64MB 内存。直接在协程里
+    调用等于让整个事件循环停 40ms——这期间 WS 心跳发不出去、SSE 不推、分片 PUT
+    不落盘。单用户场景下登录很稀疏，所以这不是瓶颈，但"一次登录卡住所有在传的
+    文件"是个不该有的耦合。
+    """
+    return await asyncio.to_thread(verify_password, password, stored_hash)
 
 
 # --- token ---------------------------------------------------------------
@@ -137,7 +149,7 @@ class AuthService:
         if credentials is None:
             return False
         username, stored = credentials
-        if not verify_password(current, stored):
+        if not await verify_password_async(current, stored):
             return False
 
         await self.set_password(username, new)
@@ -157,7 +169,7 @@ class AuthService:
         expected_name, stored_hash = credentials
         if not hmac.compare_digest(username.strip(), expected_name):
             return None
-        if not verify_password(password, stored_hash):
+        if not await verify_password_async(password, stored_hash):
             return None
 
         raw = new_token(32)

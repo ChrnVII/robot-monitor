@@ -301,11 +301,17 @@ def test_sse_delivers_task_events(stack):
 
     collected: list[dict] = []
     stop = threading.Event()
+    subscribed = threading.Event()
 
     def reader() -> None:
         try:
             with stack.http.stream("GET", "/api/events", timeout=None) as response:
                 for line in response.iter_lines():
+                    # 服务端在 bus.subscribe() 之后先发一行 `retry:`，所以收到任何
+                    # 一行就说明订阅已生效。这里不能靠 sleep：sse.txt 只有 4 字节、
+                    # 只有一个分片，也就只有一条 task_progress，晚一步订阅就永久
+                    # 错过它（事件流不重放，这是设计），用例会偶发红。
+                    subscribed.set()
                     if stop.is_set():
                         return
                     if line.startswith("data: "):
@@ -315,7 +321,7 @@ def test_sse_delivers_task_events(stack):
 
     thread = threading.Thread(target=reader, daemon=True)
     thread.start()
-    time.sleep(0.5)
+    assert subscribed.wait(10), "SSE 订阅没有建立，后续断言无意义"
 
     task = create_task(stack, "sse.txt")
     assert wait_task(stack, task["id"])["status"] == "done"

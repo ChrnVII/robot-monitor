@@ -33,6 +33,16 @@ logger = logging.getLogger("filebridge.agent.upload")
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.5
 
+# complete 的等待时间要按"文件多大"算，而不是按"网络多快"算：A 收到 complete
+# 之后会顺序读一遍整个 .part 重算 sha256（信客户端报的哈希等于没校验），
+# 这段时间与文件大小成正比。用默认的 http_timeout（60s）会让 20GB 文件在
+# 150MB/s 的机械盘上"其实已经成功、却在 B 侧报成失败"——日志和事实相反。
+# 取 50MB/s 作为"慢盘 + 同时有别的 IO"的保守值：20GB 算出约 470s，仍在
+# deploy/nginx 里 /internal/ 的 proxy_read_timeout（600s）以内；调大 A 侧的
+# max_file_bytes 时要同步调那个值，否则 B 拿到的会是代理断开而不是它的超时。
+SLOW_DISK_BYTES_PER_SECOND = 50 * 1024 * 1024
+COMPLETE_BASE_TIMEOUT = 60.0
+
 # 这些状态码重试没有意义：请求本身就不对，重发只会再错一次
 NON_RETRYABLE = {400, 401, 403, 404, 409, 411, 413, 507}
 
@@ -281,11 +291,19 @@ class UploadManager:
 
     async def _complete(self, job: UploadJob, sha256_hex: str) -> None:
         response = await self._request(
-            "POST", f"/internal/uploads/{job.upload_id}/complete", json={"sha256": sha256_hex}
+            "POST",
+            f"/internal/uploads/{job.upload_id}/complete",
+            json={"sha256": sha256_hex},
+            timeout=self._complete_timeout(job.total_size),
         )
         if response.status_code == 404:
             raise UploadCancelled
         self._raise_for_status(response, "提交完成")
+
+    def _complete_timeout(self, total_size: int) -> float:
+        """complete 允许等多久。下限是常规超时，其余按文件大小估哈希耗时。"""
+        estimate = COMPLETE_BASE_TIMEOUT + total_size / SLOW_DISK_BYTES_PER_SECOND
+        return max(self.config.http_timeout, estimate)
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         try:

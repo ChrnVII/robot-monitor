@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -154,6 +155,28 @@ def test_password_hash_roundtrip(password):
 
     assert verify_password(password, digest)
     assert not verify_password(password + "x", digest)
+
+
+async def test_password_verification_runs_in_a_worker_thread(tmp_path, monkeypatch):
+    """Argon2 是刻意的慢哈希：一次约 40ms 纯 CPU、64MB 内存。
+
+    跑在事件循环里就是全进程停 40ms——这期间 WS 心跳发不出去、SSE 不推、
+    分片 PUT 不落盘。"一次登录卡住在传的文件"是不该有的耦合，所以校验必须
+    在工作线程里。这里直接盯线程，而不是给耗时设阈值（阈值在 CI 上必飘）。
+    """
+    auth = await make_service(tmp_path)
+    threads: list[threading.Thread] = []
+
+    def spy(password: str, stored_hash: str) -> bool:
+        threads.append(threading.current_thread())
+        return True
+
+    monkeypatch.setattr("filebridge_server.auth.verify_password", spy)
+
+    assert await auth.login("admin", PASSWORD) is not None
+    assert threads and threads[0] is not threading.main_thread()
+
+    await auth.db.close()
 
 
 # --- 密码入库后的行为 -----------------------------------------------------

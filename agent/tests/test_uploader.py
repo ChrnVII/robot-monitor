@@ -249,6 +249,30 @@ async def test_empty_file_completes_without_chunks(env, tmp_path):
     assert server.completed == hashlib.sha256(b"").hexdigest()
 
 
+def test_complete_timeout_grows_with_file_size(env):
+    """complete 要等 A 重算整个文件的 sha256，超时必须随大小增长。
+
+    固定 60s 会让 20GB 在 150MB/s 的盘上（约 137s）"A 已经成功、B 却报失败"，
+    而日志和事实相反是最费时间的排障场景。
+    """
+    root, config, _notes = env
+
+    async def noop(payload: dict) -> None:
+        pass
+
+    manager = UploadManager(Sandbox(str(root)), config, noop)
+
+    # 小文件不能因为公式反而变短
+    assert manager._complete_timeout(0) == config.http_timeout
+
+    twenty_gb = 20 * 1024**3
+    timeout = manager._complete_timeout(twenty_gb)
+    assert timeout > 300
+    # 必须留在 deploy/nginx 里 /internal/ 的 proxy_read_timeout（600s）以内，
+    # 否则 B 等到的是代理断开，又回到"分不清服务器还在干活还是连接死了"。
+    assert timeout < 600
+
+
 async def test_failure_is_reported_back(env):
     root, config, notes = env
 
