@@ -13,14 +13,20 @@ const auth = useAuthStore()
 const { connected, connect, disconnect, on, onReconnect } = useLiveEvents()
 
 const stats = ref({ disk_free_bytes: 0, agents_online: 0, files: 0, pending_enrollments: 0 })
-const title = computed(() => route.meta.title || 'FileBridge')
 
-const menu = [
+// 一级导航只有「文件管理」一项（侧栏）。
+// 底下这四个是它的子页面，切换靠顶栏的 tab —— 见 router/index.js 的嵌套结构。
+const tabs = [
   { name: 'nodes', label: '节点', icon: 'Monitor' },
   { name: 'browse', label: '取件', icon: 'FolderOpened' },
   { name: 'tasks', label: '任务', icon: 'Tickets' },
   { name: 'files', label: '文件库', icon: 'Box' }
 ]
+
+// 侧栏那一项在四个子页面里都该是选中态。这里不靠 router-link 的 active-class：
+// 它按"目标路由是否被当前路由包含"算，而目标是子页面、当前也是子页面，兄弟之间
+// 判不出来。
+const inManage = computed(() => route.path.startsWith('/manage'))
 
 let timer = null
 let offEvent = null
@@ -72,22 +78,9 @@ onUnmounted(() => {
       </div>
 
       <nav>
-        <router-link
-          v-for="item in menu"
-          :key="item.name"
-          :to="{ name: item.name }"
-          class="nav-item"
-          active-class="active"
-        >
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.label }}</span>
-          <span
-            v-if="item.name === 'nodes' && stats.pending_enrollments"
-            class="nav-badge"
-            :title="`${stats.pending_enrollments} 台设备等待批准`"
-          >
-            {{ stats.pending_enrollments }}
-          </span>
+        <router-link :to="{ name: 'nodes' }" class="nav-item" :class="{ active: inManage }">
+          <el-icon><Folder /></el-icon>
+          <span>文件管理</span>
         </router-link>
       </nav>
 
@@ -101,15 +94,29 @@ onUnmounted(() => {
 
     <div class="main">
       <header class="topbar">
-        <h1>{{ title }}</h1>
+        <nav class="tabs">
+          <router-link
+            v-for="tab in tabs"
+            :key="tab.name"
+            :to="{ name: tab.name }"
+            class="tab"
+            active-class="active"
+          >
+            {{ tab.label }}
+            <span
+              v-if="tab.name === 'nodes' && stats.pending_enrollments"
+              class="tab-badge"
+              :title="`${stats.pending_enrollments} 台设备等待批准`"
+            >
+              {{ stats.pending_enrollments }}
+            </span>
+          </router-link>
+        </nav>
+
         <div class="topbar-right">
           <span class="pill">
             <el-icon><Monitor /></el-icon>
             {{ stats.agents_online }} 节点在线
-          </span>
-          <span class="pill">
-            <el-icon><Coin /></el-icon>
-            {{ formatBytes(stats.disk_free_bytes) }} 可用
           </span>
           <el-dropdown trigger="click" @command="handleLogout">
             <span class="pill" style="cursor: pointer">
@@ -118,7 +125,10 @@ onUnmounted(() => {
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                <el-dropdown-item disabled>
+                  磁盘可用 {{ formatBytes(stats.disk_free_bytes) }}
+                </el-dropdown-item>
+                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>

@@ -102,20 +102,6 @@ a {
   color: var(--fb-text);
 }
 
-.nav-badge {
-  margin-left: auto;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--fb-accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-}
-
 .nav-item.active {
   background: var(--fb-accent-soft);
   color: var(--fb-accent);
@@ -169,10 +155,59 @@ a {
   backdrop-filter: blur(8px);
 }
 
-.topbar h1 {
-  font-size: 17px;
+/* 顶栏现在是「文件管理」下面四个子页面的 tab，不再是页面标题：
+   标题属于哪一层不该靠一行大字来回变，位置固定才好盲点。 */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  height: 100%;
+  min-width: 0;
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--fb-text-muted);
+  font-size: 14.5px;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--fb-text);
+}
+
+.tab.active {
+  color: var(--fb-accent);
   font-weight: 600;
-  margin: 0;
+}
+
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--fb-accent);
+}
+
+.tab-badge {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--fb-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
 }
 
 .topbar-right {
@@ -583,5 +618,9 @@ a {
   }
   .nav-item {
     justify-content: center;
+  }
+  /* 侧栏收窄之后顶栏更值钱：tab 间距压一点，别让四个字挤成两行 */
+  .tabs {
+    gap: 16px;
   }
 }
