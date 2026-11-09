@@ -62,6 +62,7 @@ class CommandName(str, Enum):
     PING = "ping"
     LIST_DIR = "list_dir"
     STAT_FILE = "stat_file"
+    HASH_FILE = "hash_file"
     START_UPLOAD = "start_upload"
     CANCEL_TASK = "cancel_task"
 

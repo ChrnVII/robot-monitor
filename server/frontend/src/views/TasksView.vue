@@ -132,7 +132,7 @@ onUnmounted(stopWatching)
     </div>
 
     <el-table :data="tasks" v-loading="loading" style="width: 100%" empty-text="还没有任务">
-      <el-table-column label="文件" min-width="240">
+      <el-table-column label="文件" min-width="200">
         <template #default="{ row }">
           <!-- 一行显示 "路径/文件名"：路径压暗、文件名加深加粗。
                两行版本里 filename 和 path 的尾部是同一串字符，重复了。 -->
@@ -143,7 +143,7 @@ onUnmounted(stopWatching)
         </template>
       </el-table-column>
 
-      <el-table-column label="文件大小" width="110" align="right">
+      <el-table-column label="文件大小" width="100" align="right">
         <template #default="{ row }">
           <!-- 建任务前 stat 还没回来时 total_bytes 是空的，别显示成 "0 B" -->
           <span v-if="row.total_bytes" class="mono">{{ formatBytes(row.total_bytes) }}</span>
@@ -151,19 +151,24 @@ onUnmounted(stopWatching)
         </template>
       </el-table-column>
 
-      <el-table-column label="创建时间" width="170">
+      <el-table-column label="创建时间" width="160">
         <template #default="{ row }">
           <span class="muted">{{ formatTime(row.created_at) }}</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="进度" min-width="190">
+      <el-table-column label="进度" min-width="160">
         <template #default="{ row }">
           <!-- 完成的任务画一根 100% 的条没有任何信息量。只留一个勾：
                右边的"状态"列已经写了已完成，这里再写一遍只是重复。
                失败的红条保留——能从停在哪儿看出断点位置。大小已在独立列里。 -->
           <div v-if="row.status === 'done'" class="done-cell">
             <el-icon><CircleCheckFilled /></el-icon>
+          </div>
+          <!-- 判重命中的任务一条字节都没传，画进度条没有意义 -->
+          <div v-else-if="row.status === 'deduped'" class="deduped-cell">
+            <el-icon><CopyDocument /></el-icon>
+            <span>内容已在库中</span>
           </div>
           <div v-else class="progress-cell">
             <el-progress
@@ -175,7 +180,7 @@ onUnmounted(stopWatching)
         </template>
       </el-table-column>
 
-      <el-table-column label="状态" width="100">
+      <el-table-column label="状态" width="90">
         <template #default="{ row }">
           <el-tag :type="taskStatus(row.status).type" size="small" effect="light">
             {{ taskStatus(row.status).text }}
@@ -183,14 +188,16 @@ onUnmounted(stopWatching)
         </template>
       </el-table-column>
 
-      <el-table-column label="失败原因" min-width="200">
+      <!-- 失败原因常常很长，撑成一两行会把整张表的行高拖乱；
+           截断 + 悬停看全文，表格才稳。 -->
+      <el-table-column label="失败原因" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
           <span v-if="row.error" class="muted">{{ row.error }}</span>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
 
-      <el-table-column label="操作" width="100" fixed="right">
+      <el-table-column label="操作" width="90" fixed="right">
         <template #default="{ row }">
           <div class="row-actions">
             <el-button v-if="ACTIVE.has(row.status)" text size="small" @click="cancel(row)">

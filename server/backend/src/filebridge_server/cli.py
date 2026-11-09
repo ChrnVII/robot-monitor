@@ -5,7 +5,7 @@
     filebridge-server serve        # 首次会引导设置管理员密码
 
 其余命令都是"出了情况才用"：`passwd` 改密码、`pending` / `approve` 处理新设备、
-`revoke-token` 吊销、`list-agents` 查看。
+`revoke-token` 吊销、`list-agents` 查看、`dedup` 清理历史重复文件。
 
 `issue-token` / `hash-password` 保留为手工通道（自动化脚本、老部署迁移），
 默认流程不需要它们。
@@ -17,9 +17,11 @@ import argparse
 import asyncio
 import getpass
 import logging
+import os
 import secrets
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from .auth import AuthService, hash_password
@@ -62,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
     reject = sub.add_parser("reject", help="拒绝一个待注册设备")
     reject.add_argument("pending_id", help="注册申请 ID（可用前缀）")
 
+    dedup = sub.add_parser("dedup", help="查看（并可选合并）文件库里的重复内容")
+    dedup.add_argument(
+        "--apply",
+        action="store_true",
+        help="真的执行：把多余副本换成指向同一份数据的硬链接，释放磁盘",
+    )
+
     return parser
 
 
@@ -88,6 +97,8 @@ def main(argv: list[str] | None = None) -> None:
         asyncio.run(_set_enroll(args.pending_id, "approved"))
     elif command == "reject":
         asyncio.run(_set_enroll(args.pending_id, "rejected"))
+    elif command == "dedup":
+        asyncio.run(_dedup(apply=args.apply))
     else:  # pragma: no cover - argparse 已经拦住了
         parser.print_help()
         sys.exit(2)
@@ -196,6 +207,98 @@ async def _list_agents() -> None:
 
     await _with_db(action)
 
+
+
+# --- 重复内容 -----------------------------------------------------------
+#
+# 判重上线之后不会再产生新的重复，但历史数据里可能已经有：同一份文件被取过两遍。
+# 这里只做"合并存储"，一行都不删——用户按名字、按路径记住的入口都还在，省下的
+# 是磁盘。
+#
+# 用硬链接而不是删行：每一行都还有自己的目录项，purge 掉任意一条只是少一个链接，
+# 另一条的数据完好，不需要引用计数。
+
+
+async def _dedup(*, apply: bool) -> None:
+    async def action(db: Database, auth: AuthService) -> None:
+        groups = await _duplicate_groups(db)
+        if not groups:
+            print("没有重复内容")
+            return
+
+        reclaimable = 0
+        freed = 0
+        for group in groups:
+            rows = await db.fetchall(
+                "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL"
+                " ORDER BY created_at",
+                (group["agent_id"], group["sha256"]),
+            )
+            keeper, copies = rows[0], rows[1:]
+            wasted = int(group["size"]) * len(copies)
+            reclaimable += wasted
+            print(
+                f"\n{group['sha256'][:12]}  {len(rows)} 份 · 每份 {_human(group['size'])}"
+                f" · 可释放 {_human(wasted)}"
+            )
+            print(f"  保留  {keeper['orig_name']}  ({keeper['rel_path'] or '—'})")
+            for row in copies:
+                print(f"  重复  {row['orig_name']}  ({row['rel_path'] or '—'})")
+                if not apply:
+                    continue
+                if _link_over(settings.storage_dir, keeper["stored_path"], row["stored_path"]):
+                    freed += int(group["size"])
+                else:
+                    print("        跳过：找不到文件，或这个文件系统不支持硬链接")
+
+        if apply:
+            print(f"\n已合并，释放 {_human(freed)}")
+        else:
+            print(f"\n合计可释放 {_human(reclaimable)}。加 --apply 真的执行。")
+
+    await _with_db(action)
+
+
+async def _duplicate_groups(db: Database) -> list[Any]:
+    """按 (节点, sha256) 找重复；回收站里的不算——那些本来就等着被清掉。
+
+    排序按"能释放的空间"倒序，先处理大头。
+    """
+    return await db.fetchall(
+        "SELECT agent_id, sha256, COUNT(*) AS copies, MIN(size) AS size"
+        " FROM files WHERE deleted_at IS NULL"
+        " GROUP BY agent_id, sha256 HAVING COUNT(*) > 1"
+        " ORDER BY size * (COUNT(*) - 1) DESC"
+    )
+
+
+def _link_over(base: Any, keeper: str, target: str) -> bool:
+    """把 target 换成指向 keeper 的硬链接。用临时名 + replace，不留半截状态。"""
+    source = Path(base) / keeper
+    destination = Path(base) / target
+    if not source.exists() or not destination.exists():
+        return False
+
+    staging = destination.with_name(f"{destination.name}.dedup")
+    try:
+        staging.unlink(missing_ok=True)
+        os.link(source, staging)
+        os.replace(staging, destination)
+        return True
+    except OSError:
+        staging.unlink(missing_ok=True)
+        return False
+
+
+def _human(value: Any) -> str:
+    size = float(value or 0)
+    if size < 1024:
+        return f"{size:.0f} B"
+    for unit in ("KB", "MB", "GB", "TB"):
+        size /= 1024
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if size >= 100 else f"{size:.1f} {unit}"
+    return f"{size:.0f} TB"
 
 
 # --- 管理员密码 ---------------------------------------------------------

@@ -40,10 +40,21 @@ PENDING = "pending"
 UPLOADING = "uploading"
 VERIFYING = "verifying"
 DONE = "done"
+# 内容与库里已有文件完全一致：既没新增文件行，也没占新磁盘。
+# 单独一个终态而不是复用 done——"完成了"和"什么都没做"对用户是两件事。
+DEDUPED = "deduped"
 FAILED = "failed"
 CANCELED = "canceled"
 
-TERMINAL = {DONE, FAILED, CANCELED}
+TERMINAL = {DONE, DEDUPED, FAILED, CANCELED}
+
+# 判重前让 B 算一次 sha256 的超时。按 50MB/s 的保守读盘速度估，再加固定余量：
+# 估小了会把慢盘机器误判成"算不出来"，然后白传一遍——那正是要避免的事。
+# 上限 240s 压在两处超时之下：nginx 对 /api/ 的 proxy_read_timeout 是 300s，
+# 前端 axios 是 30s（所以单文件取件还另有一道更短的上限，见 routes/tasks.py）。
+HASH_BYTES_PER_SECOND = 50 * 1024 * 1024
+HASH_BASE_TIMEOUT = 20.0
+HASH_MAX_TIMEOUT = 240.0
 
 
 def _chunk_count(total_size: int, chunk_size: int) -> int:
@@ -95,7 +106,14 @@ class TaskService:
     # 建任务
     # ------------------------------------------------------------------
 
-    async def create_task(self, agent_id: str, path: str, *, actor: str = "admin") -> dict[str, Any]:
+    async def create_task(
+        self,
+        agent_id: str,
+        path: str,
+        *,
+        actor: str = "admin",
+        hash_timeout: float | None = None,
+    ) -> dict[str, Any]:
         try:
             rel = normalize_client_path(path)
         except ValueError as exc:
@@ -137,7 +155,16 @@ class TaskService:
             await self._mark_task_failed(task_id, ErrorCode.INVALID_ARGUMENTS, message)
             raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, message)
 
-        # ② 磁盘预检：宁可建任务时直接拒绝，也不要传到 90% 再说放不下
+        # ② 内容判重：库里已经有一模一样的文件时，连传都不传。
+        #    先比大小是有意为之——让 B 算 sha256 要整份读盘，没有同尺寸候选就
+        #    别白读；真正省下的是那几 GB 的上传。
+        duplicate = await self._find_duplicate_before_upload(
+            agent_id, rel, total_size, max_wait=hash_timeout
+        )
+        if duplicate is not None:
+            return await self._mark_task_deduped(task_id, duplicate, actor=actor)
+
+        # ③ 磁盘预检：宁可建任务时直接拒绝，也不要传到 90% 再说放不下
         try:
             self.storage.ensure_capacity(total_size)
         except StorageError as exc:
@@ -192,6 +219,93 @@ class TaskService:
         self._publish_task(task_id, extra={"agent_id": agent_id, "filename": filename})
         logger.info("task %s created for %s:%s (%d bytes)", task_id, agent_id, rel, total_size)
         return await self.get_task(task_id)
+
+    # ------------------------------------------------------------------
+    # 内容判重
+    #
+    # 判重的口径是**内容**（sha256 相同），不是路径：同一份视频换个目录再取一次，
+    # 也还是同一份。去重范围限定在同一台节点内——跨节点合并会让"这台机器取的
+    # 文件"凭空出现在另一台名下，而下面的会话模型是按节点组织的。
+    # ------------------------------------------------------------------
+
+    async def _find_duplicate_before_upload(
+        self, agent_id: str, rel: str, total_size: int, *, max_wait: float | None = None
+    ) -> Any | None:
+        """上传前判重。命中返回库里那条已存在的 file 行，否则 None。"""
+        # 先按大小筛。绝大多数文件大小是唯一的，这一步就把它们挡在哈希之外，
+        # 不需要为每个文件白读一遍盘。
+        candidate = await self.db.fetchone(
+            "SELECT 1 AS hit FROM files WHERE agent_id = ? AND size = ?"
+            " AND deleted_at IS NULL LIMIT 1",
+            (agent_id, total_size),
+        )
+        if candidate is None:
+            return None
+
+        budget = self._hash_timeout(total_size)
+        if max_wait is not None:
+            budget = min(budget, max_wait)
+
+        try:
+            result = await self.hub.request(
+                agent_id,
+                CommandName.HASH_FILE,
+                {"rel": rel},
+                timeout=budget,
+            )
+        except AgentError as exc:
+            # 两类正常失败：老版本 agent 回 unknown_command；慢盘读超时。
+            # 这只是一次"省下整份上传"的机会，抓不住就照常传，不能拦路。
+            logger.info("pre-hash skipped for %s: %s", rel, exc)
+            return None
+
+        digest = str(result.get("sha256") or "").lower()
+        if len(digest) != 64:
+            logger.warning("agent returned a malformed sha256 for %s: %r", rel, digest)
+            return None
+
+        return await self.db.fetchone(
+            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL LIMIT 1",
+            (agent_id, digest),
+        )
+
+    async def _mark_task_deduped(
+        self,
+        task_id: str,
+        existing: Any,
+        *,
+        upload_id: str | None = None,
+        transferred: int = 0,
+        actor: str = "admin",
+    ) -> dict[str, Any]:
+        """把任务落到 deduped：不是失败，也不是"产出了一个新文件"。
+
+        库里的行一个字都不动——同一份内容只留一条，列表里也就不会冒出两个同名项。
+        `file_id` 指回已存在的那条，方便以后（会话视图）把这次取件也算进同一份文件。
+        """
+        now = time.time()
+        async with self.db.write_transaction() as conn:
+            await conn.execute(
+                "UPDATE tasks SET status = ?, file_id = ?, transferred_bytes = ?, updated_at = ?"
+                " WHERE id = ?",
+                (DEDUPED, existing["id"], transferred, now, task_id),
+            )
+            if upload_id is not None:
+                await conn.execute(
+                    "UPDATE uploads SET status = ?, updated_at = ? WHERE id = ?",
+                    (DONE, now, upload_id),
+                )
+
+        await self.auth.audit(
+            actor, "task.dedup", target=task_id, detail=f"{existing['orig_name']} → {existing['id']}"
+        )
+        self._publish_task(task_id, extra={"file_id": existing["id"]})
+        logger.info("task %s deduped into existing file %s", task_id, existing["id"])
+        return await self.get_task(task_id)
+
+    @staticmethod
+    def _hash_timeout(total_size: int) -> float:
+        return min(total_size / HASH_BYTES_PER_SECOND + HASH_BASE_TIMEOUT, HASH_MAX_TIMEOUT)
 
     # ------------------------------------------------------------------
     # 批量取件：目录展开 + 批量建任务
@@ -615,6 +729,9 @@ class TaskService:
         row = await self.db.fetchone("SELECT * FROM uploads WHERE id = ?", (upload_id,))
         if row is None:
             raise ApiError(404, ErrorCode.FILE_NOT_FOUND, f"upload {upload_id} not found")
+        # deduped 也走这个分支：收尾时 uploads 和 tasks 在同一个事务里落成了
+        # done/deduped，B 重发 complete 不该拿到 409——那会让它在本地报失败，
+        # 把一条已经正常收尾的任务改成 failed。
         if row["status"] == DONE:
             return await self.get_task(row["task_id"])
         if row["status"] != UPLOADING:
@@ -638,21 +755,43 @@ class TaskService:
 
         file_id = uuid.uuid4().hex
         try:
-            actual = await self.storage.finalize(
-                upload_id, row["agent_id"], file_id, expected_sha256=sha256_reported
-            )
+            # 只校验不落盘：先拿到真实哈希，才能决定这块数据要不要留。
+            actual = await self.storage.verify(upload_id, expected_sha256=sha256_reported)
         except StorageError as exc:
             # 校验失败保留 staging 供排查；其余错误清理掉
             keep = exc.code is ErrorCode.CHECKSUM_MISMATCH
             await self._fail_upload(upload_id, exc.code, exc.message, keep_staging=keep)
             raise ApiError(409 if keep else 400, exc.code, exc.message) from exc
         except Exception as exc:
-            # finalize 除了 StorageError 还会抛 OSError：mkdir 没权限、os.replace
-            # 撞上 ENOSPC、读 staging 时盘掉了。这些都不是"文件传坏了"，但后果一样——
-            # 不在这里收尾的话，upload 会永久停在 verifying，而 sweep 只扫 uploading、
-            # pending_uploads 也不会把它报给 B，于是任务页永远转圈、.part 永远占盘。
-            # CancelledError 继承 BaseException，所以服务取消时不会被这里吞掉。
-            logger.exception("finalize for upload %s blew up", upload_id)
+            # 除了 StorageError 还会抛 OSError：读 staging 时盘掉了、ENOSPC 之类。
+            # 这些都不是"文件传坏了"，但后果一样——不在这里收尾的话，upload 会
+            # 永久停在 verifying，而 sweep 只扫 uploading，于是任务页永远转圈、
+            # .part 永远占盘。CancelledError 继承 BaseException，不会被这里吞掉。
+            logger.exception("verify for upload %s blew up", upload_id)
+            await self._fail_upload(upload_id, ErrorCode.INTERNAL, f"落盘失败：{exc}")
+            raise ApiError(500, ErrorCode.INTERNAL, f"落盘失败：{exc}") from exc
+
+        # 落盘前再判一次重。上传前那次可能没命中：老版本 agent 不支持 hash_file，
+        # 或者两个相同内容在并发上传（谁都没落库，彼此都看不见）。
+        # 命中就把这份 .part 丢掉——一行 files 都不写，磁盘也不会多出一份。
+        existing = await self.db.fetchone(
+            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL LIMIT 1",
+            (row["agent_id"], actual),
+        )
+        if existing is not None:
+            await self.storage.drop_staging(upload_id)
+            return await self._mark_task_deduped(
+                row["task_id"],
+                existing,
+                upload_id=upload_id,
+                transferred=int(row["total_size"]),
+                actor="agent",
+            )
+
+        try:
+            await self.storage.commit(upload_id, row["agent_id"], file_id)
+        except Exception as exc:
+            logger.exception("commit for upload %s blew up", upload_id)
             await self._fail_upload(upload_id, ErrorCode.INTERNAL, f"落盘失败：{exc}")
             raise ApiError(500, ErrorCode.INTERNAL, f"落盘失败：{exc}") from exc
 

@@ -127,17 +127,12 @@ class Storage:
                 digest.update(block)
         return digest.hexdigest()
 
-    async def finalize(
-        self,
-        upload_id: str,
-        agent_id: str,
-        file_id: str,
-        *,
-        expected_sha256: str | None = None,
-    ) -> str:
-        """校验并原子落盘，返回实际 sha256。
+    async def verify(self, upload_id: str, *, expected_sha256: str | None = None) -> str:
+        """只校验、不落盘，返回实际 sha256。
 
-        校验失败时保留 staging（便于排查到底哪一段坏了），不落盘。
+        拆出这一步是为了判重：内容哈希一旦算出来，A 就能先查库里有没有同一份
+        数据，再决定这个 `.part` 是该落盘还是该丢掉。先落盘再判重的话，磁盘上
+        会先多出一份，判完再删——多一次无谓的写和一次可能失败的清理。
         """
         part = self.staging_path(upload_id)
         if not part.exists():
@@ -150,9 +145,27 @@ class Storage:
                 ErrorCode.CHECKSUM_MISMATCH,
                 f"sha256 mismatch: server computed {actual}, agent reported {expected_sha256}",
             )
+        return actual
 
+    async def commit(self, upload_id: str, agent_id: str, file_id: str) -> None:
+        part = self.staging_path(upload_id)
         destination = self.final_path(agent_id, file_id)
         await asyncio.to_thread(self._commit, part, destination)
+
+    async def finalize(
+        self,
+        upload_id: str,
+        agent_id: str,
+        file_id: str,
+        *,
+        expected_sha256: str | None = None,
+    ) -> str:
+        """校验并原子落盘，返回实际 sha256。
+
+        校验失败时保留 staging（便于排查到底哪一段坏了），不落盘。
+        """
+        actual = await self.verify(upload_id, expected_sha256=expected_sha256)
+        await self.commit(upload_id, agent_id, file_id)
         return actual
 
     @staticmethod

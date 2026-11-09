@@ -41,7 +41,10 @@ async function submit() {
     <div class="login-card">
       <div class="brand">
         <span class="brand-mark">FB</span>
-        <span>FileBridge</span>
+        <span>
+          FileBridge
+          <span class="brand-sub">内网取件通道</span>
+        </span>
       </div>
       <p class="sub">登录后浏览内网机器上的文件，按需取回到这里。</p>
 

@@ -310,7 +310,7 @@ onUnmounted(stopWatching)
     <div class="panel tree-panel">
       <!-- 节点选择与操作挤在同一行，树直接从下面开始，省掉一层标题栏 -->
       <div class="panel-head browse-bar">
-        <span class="muted">节点</span>
+        <span class="bar-label">节点</span>
         <el-select v-model="agentId" style="width: 220px" @change="changeAgent">
           <el-option
             v-for="agent in agents"
@@ -358,7 +358,7 @@ onUnmounted(stopWatching)
         >
           <template #default="{ data }">
             <span class="tree-node">
-              <el-icon class="node-icon">
+              <el-icon class="node-icon" :class="data.type">
                 <Folder v-if="data.type === 'dir'" />
                 <Document v-else-if="data.type === 'file'" />
                 <Link v-else-if="data.type === 'symlink'" />
@@ -372,12 +372,10 @@ onUnmounted(stopWatching)
             </span>
           </template>
         </el-tree>
-        <div
-          v-if="viewState === 'empty'"
-          class="muted"
-          style="padding: 40px 12px; text-align: center"
-        >
-          还没有接入任何节点
+        <div v-if="viewState === 'empty'" class="tree-empty">
+          <el-icon><FolderOpened /></el-icon>
+          <p>还没有接入任何节点</p>
+          <span>在「节点」页等待 B 端 agent 上线并批准接入后，这里会显示它的目录。</span>
         </div>
       </div>
     </div>

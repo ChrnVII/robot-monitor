@@ -165,7 +165,7 @@ def create_task(stack, rel_path: str) -> dict:
 def wait_task(stack, task_id: str, timeout: float = 30.0) -> dict:
     def poll():
         task = stack.http.get(f"/api/v1/tasks/{task_id}").json()
-        return task if task["status"] in {"done", "failed", "canceled"} else None
+        return task if task["status"] in {"done", "deduped", "failed", "canceled"} else None
 
     return wait_for(poll, timeout, f"任务 {task_id} 没有结束")
 
@@ -461,3 +461,47 @@ def test_preview_marks_truncated_when_over_the_limit(stack):
 
     assert plan["truncated"] is True
     assert plan["file_count"] == 1
+
+
+def test_same_content_is_not_stored_twice(stack):
+    """取件时内容已在库（sha 相同）→ 不重传、不新增文件行、不多占磁盘。
+
+    判重的口径是内容而不是路径：同一份数据换到哪个目录再取，都还是那一份。
+    """
+    payload = bytes(range(256)) * 8192  # 2 MiB，8 个分片
+    (stack.share / "dup.bin").write_bytes(payload)
+
+    first = wait_task(stack, create_task(stack, "dup.bin")["id"])
+    assert first["status"] == "done", first
+
+    second = wait_task(stack, create_task(stack, "dup.bin")["id"])
+    assert second["status"] == "deduped", second
+    # 指回已存在的那条，而不是新建一条
+    assert second["file_id"] == first["file_id"]
+    # 判重在上传前命中：一个字节都没传
+    assert second["transferred_bytes"] == 0
+
+    files = stack.http.get("/api/v1/files").json()["items"]
+    assert len(files) == 1
+    assert files[0]["id"] == first["file_id"]
+
+    blobs = [path for path in stack.settings.files_dir.rglob("*") if path.is_file()]
+    assert len(blobs) == 1, blobs
+    assert not list(stack.settings.staging_dir.glob("*.part"))
+
+
+def test_different_content_under_same_path_is_a_new_file(stack):
+    """同名同路径但内容变了（比如日志又追加了一段），不是重复，要照常入库。"""
+    target = stack.share / "app.log"
+    target.write_bytes(b"line 1\n")
+
+    first = wait_task(stack, create_task(stack, "app.log")["id"])
+    assert first["status"] == "done", first
+
+    target.write_bytes(b"line 1\nline 2\n")
+    second = wait_task(stack, create_task(stack, "app.log")["id"])
+    assert second["status"] == "done", second
+    assert second["file_id"] != first["file_id"]
+
+    files = stack.http.get("/api/v1/files").json()["items"]
+    assert len(files) == 2

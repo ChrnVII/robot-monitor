@@ -46,6 +46,8 @@ export const TASK_STATUS = {
   uploading: { text: '上传中', type: 'primary' },
   verifying: { text: '校验中', type: 'warning' },
   done: { text: '已完成', type: 'success' },
+  // 内容与库里已有文件完全一致：没新增文件，也没占磁盘。不是失败。
+  deduped: { text: '已存在', type: 'info' },
   failed: { text: '失败', type: 'danger' },
   canceled: { text: '已取消', type: 'info' }
 }

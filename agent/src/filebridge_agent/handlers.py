@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import time
 from collections.abc import Callable
@@ -166,6 +167,40 @@ def _stat_sync(target: Path, rel: str) -> dict[str, Any]:
     }
 
 
+# --- hash_file ----------------------------------------------------------
+#
+# A 用它做"上传前判重"：库里已经有同尺寸文件时，先让 B 算一遍 sha256，
+# 一致就整份跳过传输。代价是一次全量读盘，收益是几 GB 的上传。
+# 只在 A 侧发现同尺寸候选时才会被调用，所以绝大多数文件不会多读这一遍。
+
+
+async def _hash_file(payload: dict[str, Any], ctx: HandlerContext) -> dict[str, Any]:
+    rel = _string(payload, "rel", default="")
+    if not rel:
+        raise AgentCommandError(ErrorCode.INVALID_ARGUMENTS, "需要指定文件路径")
+
+    target = ctx.sandbox.resolve(rel)
+    return await asyncio.to_thread(_hash_sync, target, rel)
+
+
+def _hash_sync(target: Path, rel: str) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with open(target, "rb") as handle:
+            while block := handle.read(1024 * 1024):
+                digest.update(block)
+                size += len(block)
+    except FileNotFoundError as exc:
+        raise AgentCommandError(ErrorCode.FILE_NOT_FOUND, f"文件不存在：{rel}") from exc
+    except PermissionError as exc:
+        raise AgentCommandError(ErrorCode.FORBIDDEN, f"没有读取权限：{rel}") from exc
+    except OSError as exc:
+        raise AgentCommandError(ErrorCode.FORBIDDEN, f"无法读取：{rel}：{exc}") from exc
+
+    return {"rel": rel, "sha256": digest.hexdigest(), "size": size}
+
+
 # --- start_upload / cancel_task -----------------------------------------
 
 
@@ -228,6 +263,7 @@ _HANDLERS: dict[CommandName, Callable[[dict[str, Any], HandlerContext], Any]] = 
     CommandName.PING: _ping,
     CommandName.LIST_DIR: _list_dir,
     CommandName.STAT_FILE: _stat_file,
+    CommandName.HASH_FILE: _hash_file,
     CommandName.START_UPLOAD: _start_upload,
     CommandName.CANCEL_TASK: _cancel_task,
 }

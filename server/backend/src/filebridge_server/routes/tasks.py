@@ -20,6 +20,11 @@ router = APIRouter(
     tags=["取件任务"],
 )
 
+# 单文件取件是同步请求：判重时 B 要整份读一遍文件，前端 axios 只等 30s。
+# 所以这里只给它 20s——算不完就退回"传完再判"，结果一样正确，只是多传一次。
+# 批量取件在后台跑（202 立即返回），用满 services 里按文件大小估出来的预算。
+PREHASH_WAIT = 20.0
+
 
 class CreateTaskPayload(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64)
@@ -52,7 +57,7 @@ async def create_task(payload: CreateTaskPayload, request: Request, ctx: Context
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"code": ErrorCode.RATE_LIMITED.value, "message": "任务创建过于频繁"},
         )
-    return await ctx.tasks.create_task(payload.agent_id, payload.path)
+    return await ctx.tasks.create_task(payload.agent_id, payload.path, hash_timeout=PREHASH_WAIT)
 
 
 @router.post("/preview")

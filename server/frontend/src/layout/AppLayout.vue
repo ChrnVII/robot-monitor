@@ -10,7 +10,7 @@ import { formatBytes } from '../utils/format'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const { connected, connect, disconnect, on, onReconnect } = useLiveEvents()
+const { connect, disconnect, on, onReconnect } = useLiveEvents()
 
 const stats = ref({ disk_free_bytes: 0, agents_online: 0, files: 0, pending_enrollments: 0 })
 
@@ -20,7 +20,7 @@ const tabs = [
   { name: 'nodes', label: '节点', icon: 'Monitor' },
   { name: 'browse', label: '取件', icon: 'FolderOpened' },
   { name: 'tasks', label: '任务', icon: 'Tickets' },
-  { name: 'files', label: '文件库', icon: 'Box' }
+  { name: 'files', label: '文件库', icon: 'Files' }
 ]
 
 // 侧栏那一项在四个子页面里都该是选中态。这里不靠 router-link 的 active-class：
@@ -74,22 +74,19 @@ onUnmounted(() => {
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">FB</span>
-        <span>FileBridge</span>
+        <span>
+          FileBridge
+          <span class="brand-sub">内网取件通道</span>
+        </span>
       </div>
 
       <nav>
+        <div class="nav-label">工作区</div>
         <router-link :to="{ name: 'nodes' }" class="nav-item" :class="{ active: inManage }">
           <el-icon><Folder /></el-icon>
           <span>文件管理</span>
         </router-link>
       </nav>
-
-      <div class="sidebar-foot">
-        <div class="sse" :class="{ on: connected }">
-          <span class="dot" />
-          {{ connected ? '实时连接正常' : '正在重连…' }}
-        </div>
-      </div>
     </aside>
 
     <div class="main">
@@ -102,6 +99,7 @@ onUnmounted(() => {
             class="tab"
             active-class="active"
           >
+            <el-icon><component :is="tab.icon" /></el-icon>
             {{ tab.label }}
             <span
               v-if="tab.name === 'nodes' && stats.pending_enrollments"
@@ -114,9 +112,12 @@ onUnmounted(() => {
         </nav>
 
         <div class="topbar-right">
+          <!-- 磁盘余量留在一级位置：磁盘满会让建任务直接失败（服务端有
+               insufficient_space），不是"偶尔瞟一眼"的信息。节点在线数进了
+               下拉——节点页本来就有更全的在线状态，这里只是个摘要。 -->
           <span class="pill">
-            <el-icon><Monitor /></el-icon>
-            {{ stats.agents_online }} 节点在线
+            <el-icon><Coin /></el-icon>
+            {{ formatBytes(stats.disk_free_bytes) }} 可用
           </span>
           <el-dropdown trigger="click" @command="handleLogout">
             <span class="pill" style="cursor: pointer">
@@ -126,7 +127,7 @@ onUnmounted(() => {
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item disabled>
-                  磁盘可用 {{ formatBytes(stats.disk_free_bytes) }}
+                  {{ stats.agents_online }} 台节点在线
                 </el-dropdown-item>
                 <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
               </el-dropdown-menu>

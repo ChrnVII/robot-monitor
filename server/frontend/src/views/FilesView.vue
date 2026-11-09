@@ -165,7 +165,7 @@ onUnmounted(() => {
 <template>
   <div class="panel">
     <div class="panel-head">
-      <el-tabs v-model="tab" style="margin-bottom: -14px">
+      <el-tabs v-model="tab" class="panel-tabs">
         <el-tab-pane label="文件库" name="library" />
         <el-tab-pane label="回收站" name="trash" />
       </el-tabs>
@@ -231,7 +231,7 @@ onUnmounted(() => {
       </el-table-column>
     </el-table>
 
-    <div style="display: flex; justify-content: flex-end; padding: 14px 20px">
+    <div class="pager">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"

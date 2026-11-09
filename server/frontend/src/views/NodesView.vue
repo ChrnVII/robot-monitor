@@ -225,8 +225,7 @@ onUnmounted(stopWatching)
               在 B 上启动 agent，它会自动向 A 注册；如果准入策略要求人工确认，
               它会先出现在上面的「待批准接入」里。这里不需要做任何配置。
             </p>
-            <pre class="mono" style="text-align: left; background: #f7f9fc; padding: 14px 16px; border-radius: 10px; border: 1px solid var(--fb-border); display: inline-block">
-# B 端
+            <pre class="codeblock"># B 端
 filebridge-agent --server https://你的域名 --root /srv/share
 
 # 也可以手工签发（跳过注册审批）

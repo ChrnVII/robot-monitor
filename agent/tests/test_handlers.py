@@ -11,7 +11,7 @@ import pytest
 from filebridge_agent.errors import AgentCommandError
 from filebridge_agent.handlers import HandlerContext, dispatch
 from filebridge_agent.protocol import CommandName, ErrorCode
-from filebridge_agent.sandbox import Sandbox
+from filebridge_agent.sandbox import Sandbox, SandboxError
 
 
 class DummyUploads:
@@ -178,3 +178,26 @@ async def test_no_write_mode_open_in_agent_source():
             offenders.append(f"{path.name}: {match.group(0)}")
 
     assert offenders == [], f"agent 里出现了写模式打开文件：{offenders}"
+
+
+async def test_hash_file_returns_real_digest(ctx):
+    """判重靠这条命令：A 拿它算出的 sha256 和库里比对。"""
+    import hashlib
+
+    result = await dispatch(CommandName.HASH_FILE, {"rel": "a.txt"}, ctx)
+
+    assert result["sha256"] == hashlib.sha256(b"a").hexdigest()
+    assert result["size"] == 1
+
+
+async def test_hash_file_reports_missing_file(ctx):
+    with pytest.raises(AgentCommandError) as failure:
+        await dispatch(CommandName.HASH_FILE, {"rel": "nope.txt"}, ctx)
+
+    assert failure.value.code is ErrorCode.FILE_NOT_FOUND
+
+
+async def test_hash_file_refuses_path_outside_sandbox(ctx):
+    # 沙箱错误在这一层直接抛，由 client 的 dispatch 循环翻译成 forbidden
+    with pytest.raises(SandboxError):
+        await dispatch(CommandName.HASH_FILE, {"rel": "../etc/passwd"}, ctx)
