@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import json
+import os
 import socket
 import threading
 import time
+import zipfile
 from types import SimpleNamespace
 
 import httpx
@@ -490,18 +493,126 @@ def test_same_content_is_not_stored_twice(stack):
     assert not list(stack.settings.staging_dir.glob("*.part"))
 
 
-def test_different_content_under_same_path_is_a_new_file(stack):
-    """同名同路径但内容变了（比如日志又追加了一段），不是重复，要照常入库。"""
+def test_same_path_new_content_replaces_in_place(stack):
+    """同一路径内容变了（比如日志又追加了一段）：替换那一条，不是新增一行。
+
+    路径才是文件库里的身份——树要和远端目录长得一样，一个路径不能有两条。
+    """
     target = stack.share / "app.log"
     target.write_bytes(b"line 1\n")
-
     first = wait_task(stack, create_task(stack, "app.log")["id"])
     assert first["status"] == "done", first
 
     target.write_bytes(b"line 1\nline 2\n")
     second = wait_task(stack, create_task(stack, "app.log")["id"])
     assert second["status"] == "done", second
-    assert second["file_id"] != first["file_id"]
+    assert second["file_id"] == first["file_id"]
 
     files = stack.http.get("/api/v1/files").json()["items"]
-    assert len(files) == 2
+    assert len(files) == 1
+    entry = files[0]
+    assert entry["size"] == len(b"line 1\nline 2\n")
+
+    # 字节真的换掉了：只改行不改 blob 是最容易写出来的 bug
+    download = stack.http.get(f"/api/v1/files/{entry['id']}/download")
+    assert download.content == b"line 1\nline 2\n"
+
+
+def test_same_content_in_another_directory_is_linked_not_duplicated(stack):
+    """同一份内容出现在两个目录：两条记录（树里两处都在），磁盘一个 inode。"""
+    payload = bytes(range(256)) * 4096
+    for folder in ("left", "right"):
+        (stack.share / folder).mkdir()
+        (stack.share / folder / "clip.bin").write_bytes(payload)
+
+    first = wait_task(stack, create_task(stack, "left/clip.bin")["id"])
+    assert first["status"] == "done", first
+
+    second = wait_task(stack, create_task(stack, "right/clip.bin")["id"])
+    # 不是 deduped：这条路径上确实多了一个文件，只是没传字节
+    assert second["status"] == "done", second
+    assert second["transferred_bytes"] == 0
+    assert second["file_id"] != first["file_id"]
+
+    files = {item["rel_path"]: item for item in stack.http.get("/api/v1/files").json()["items"]}
+    assert set(files) == {"left/clip.bin", "right/clip.bin"}
+
+    blobs = [path for path in stack.settings.files_dir.rglob("*") if path.is_file()]
+    assert len(blobs) == 2
+    assert os.path.samefile(blobs[0], blobs[1])
+
+    # 两条记录的内容都可以正常下载
+    for item in files.values():
+        got = stack.http.get(f"/api/v1/files/{item['id']}/download")
+        assert got.content == payload
+
+
+def fetch(stack, rel: str, payload: bytes) -> dict:
+    target = stack.share / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    return wait_task(stack, create_task(stack, rel)["id"])
+
+
+def test_browse_returns_directories_with_recursive_stats(stack):
+    """目录就是路径前缀：这一层返回子目录（递归统计）和直属文件。"""
+    fetch(stack, "proj/a/one.bin", b"1" * 10)
+    fetch(stack, "proj/a/two.bin", b"2" * 20)
+    fetch(stack, "proj/b/three.bin", b"3" * 30)
+    fetch(stack, "proj/root.bin", b"4" * 40)
+
+    listing = stack.http.get(
+        "/api/v1/files/browse", params={"agent_id": stack.agent_id, "path": "proj"}
+    ).json()
+
+    assert [entry["name"] for entry in listing["dirs"]] == ["a", "b"]
+    first = listing["dirs"][0]
+    assert first["files"] == 2
+    assert first["size"] == 30
+    assert first["path"] == "proj/a"
+    assert [entry["name"] for entry in listing["files"]] == ["root.bin"]
+    assert listing["total_files"] == 4
+    assert listing["total_size"] == 100
+
+    nested = stack.http.get(
+        "/api/v1/files/browse", params={"agent_id": stack.agent_id, "path": "proj/a"}
+    ).json()
+    assert nested["dirs"] == []
+    assert [entry["name"] for entry in nested["files"]] == ["one.bin", "two.bin"]
+
+
+def test_archive_packs_a_directory_and_keeps_structure(stack):
+    fetch(stack, "pkg/a.txt", b"alpha")
+    fetch(stack, "pkg/sub/报告.txt", "中文内容".encode())
+
+    response = stack.http.get(
+        "/api/v1/files/archive", params={"agent_id": stack.agent_id, "path": "pkg"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    bundle = zipfile.ZipFile(io.BytesIO(response.content))
+    assert sorted(bundle.namelist()) == ["pkg/a.txt", "pkg/sub/报告.txt"]
+    assert bundle.read("pkg/a.txt") == b"alpha"
+    assert bundle.read("pkg/sub/报告.txt").decode() == "中文内容"
+
+
+def test_delete_tree_moves_the_whole_directory_to_trash(stack):
+    fetch(stack, "gone/a.txt", b"a")
+    fetch(stack, "gone/sub/b.txt", b"b")
+    fetch(stack, "keep/c.txt", b"c")
+
+    removed = stack.http.delete(
+        "/api/v1/files/tree", params={"agent_id": stack.agent_id, "path": "gone"}
+    )
+    assert removed.status_code == 200, removed.text
+    assert removed.json()["deleted"] == 2
+
+    live = stack.http.get("/api/v1/files").json()["items"]
+    assert {item["rel_path"] for item in live} == {"keep/c.txt"}
+
+    trashed = stack.http.get(
+        "/api/v1/files/browse",
+        params={"agent_id": stack.agent_id, "path": "gone", "deleted": True},
+    ).json()
+    assert trashed["total_files"] == 2

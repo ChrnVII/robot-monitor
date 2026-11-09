@@ -211,12 +211,11 @@ async def _list_agents() -> None:
 
 # --- 重复内容 -----------------------------------------------------------
 #
-# 判重上线之后不会再产生新的重复，但历史数据里可能已经有：同一份文件被取过两遍。
-# 这里只做"合并存储"，一行都不删——用户按名字、按路径记住的入口都还在，省下的
-# 是磁盘。
+# 现在的模型是"记录按路径、磁盘按内容"：同一份内容出现在两个目录下是正常的，
+# 它们本来就该共用一个 inode。所以这条命令只找**还没共享存储**的历史数据——
+# 判重上线之前取的那些文件，两个路径各占一份盘。
 #
-# 用硬链接而不是删行：每一行都还有自己的目录项，purge 掉任意一条只是少一个链接，
-# 另一条的数据完好，不需要引用计数。
+# 合并方式是硬链接，一行都不删：用户按名字、按路径记住的入口都还在。
 
 
 async def _dedup(*, apply: bool) -> None:
@@ -234,6 +233,10 @@ async def _dedup(*, apply: bool) -> None:
                 " ORDER BY created_at",
                 (group["agent_id"], group["sha256"]),
             )
+            if _shares_storage([row["stored_path"] for row in rows]):
+                # 已经共用一份数据了：两条记录本来就是我们想要的形态
+                continue
+
             keeper, copies = rows[0], rows[1:]
             wasted = int(group["size"]) * len(copies)
             reclaimable += wasted
@@ -253,10 +256,23 @@ async def _dedup(*, apply: bool) -> None:
 
         if apply:
             print(f"\n已合并，释放 {_human(freed)}")
-        else:
+        elif reclaimable:
             print(f"\n合计可释放 {_human(reclaimable)}。加 --apply 真的执行。")
+        else:
+            print("所有重复内容都已共用同一份数据，没有可释放的空间")
 
     await _with_db(action)
+
+
+def _shares_storage(paths: list[str]) -> bool:
+    """这些落盘路径是不是已经指向同一个 inode。"""
+    inodes = set()
+    for rel in paths:
+        try:
+            inodes.add((settings.storage_dir / rel).stat().st_ino)
+        except OSError:
+            return False
+    return len(inodes) == 1
 
 
 async def _duplicate_groups(db: Database) -> list[Any]:

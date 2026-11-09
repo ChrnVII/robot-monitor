@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from ..deps import Context, require_session
 from ..protocol import ErrorCode
@@ -40,6 +41,47 @@ async def list_files(
         limit=min(max(limit, 1), 200),
         offset=max(offset, 0),
     )
+
+
+@router.get("/browse")
+async def browse(
+    ctx: Context,
+    agent_id: str,
+    path: str = "",
+    deleted: bool = False,
+    limit: int = 500,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """列出某个目录的下一层。
+
+    目录就是 rel_path 的前缀，所以这里返回的是"这一层有哪些子目录（带递归统计）
+    和哪些文件"，而不是一整棵树——树由前端按需展开。
+    """
+    return await ctx.tasks.browse(
+        agent_id=agent_id,
+        path=path,
+        deleted=deleted,
+        limit=min(max(limit, 1), 2000),
+        offset=max(offset, 0),
+    )
+
+
+@router.get("/archive")
+async def archive(ctx: Context, agent_id: str, path: str = "") -> FileResponse:
+    """按目录打包下载。临时 zip 在响应结束后删除，不留给下一次。"""
+    target, filename = await ctx.tasks.archive(agent_id=agent_id, path=path)
+    return FileResponse(
+        target,
+        media_type="application/zip",
+        filename=filename,
+        background=BackgroundTask(lambda: target.unlink(missing_ok=True)),
+    )
+
+
+# 这条必须声明在 `/{file_id}` 之前：否则 DELETE /tree 会被当成 file_id="tree"。
+@router.delete("/tree")
+async def delete_tree(ctx: Context, agent_id: str, path: str) -> dict[str, int]:
+    return await ctx.tasks.delete_tree(agent_id=agent_id, path=path)
 
 
 @router.get("/{file_id}/download")

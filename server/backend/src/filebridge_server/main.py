@@ -112,12 +112,14 @@ async def _maintenance(ctx: AppContext) -> None:
             swept = await ctx.tasks.sweep_idle_uploads()
             purged_sessions = await ctx.auth.purge_expired_sessions()
             purged_files = await ctx.tasks.purge_expired_trash()
-            if swept or purged_sessions or purged_files:
+            stale_archives = await ctx.tasks.sweep_archive_temp()
+            if swept or purged_sessions or purged_files or stale_archives:
                 logger.info(
-                    "maintenance: %d idle upload(s), %d session(s), %d trashed file(s)",
+                    "maintenance: %d idle upload(s), %d session(s), %d trashed file(s), %d stale archive(s)",
                     swept,
                     purged_sessions,
                     purged_files,
+                    stale_archives,
                 )
         except asyncio.CancelledError:
             raise

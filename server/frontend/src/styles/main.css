@@ -925,6 +925,252 @@ a {
 }
 
 /* ==========================================================================
+   文件库：左树 + 右列表
+   ========================================================================== */
+
+.files-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 460px;
+}
+
+.files-body {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+/* 左栏的树是"已入库的路径"，不是远端目录：不懒加载远端，节点带数量 */
+.files-tree {
+  border-right: 1px solid var(--fb-border);
+  background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
+  padding: 10px 6px 16px;
+  overflow: auto;
+  max-height: calc(100vh - 230px);
+}
+
+.files-tree .el-tree-node__content {
+  height: 30px;
+  border-radius: 7px;
+}
+
+.files-tree .el-tree-node__content:hover {
+  background: var(--fb-hover);
+}
+
+.files-tree .el-tree-node.is-current > .el-tree-node__content {
+  background: var(--fb-accent-soft);
+  color: var(--fb-accent);
+}
+
+/* 树的 label 要撑满，否则右边的数量会紧贴在名字后面，而不是靠右对齐 */
+.files-tree .el-tree-node__label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.files-tree .node-count {
+  margin-left: auto;
+  padding-right: 6px;
+  font-size: 11px;
+  color: var(--fb-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.files-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+}
+
+.files-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--fb-border);
+}
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.crumbs a {
+  padding: 2px 5px;
+  border-radius: 5px;
+  color: var(--fb-text-muted);
+  cursor: pointer;
+}
+
+.crumbs a:hover {
+  background: var(--fb-hover);
+  color: var(--fb-text);
+}
+
+.crumbs a.leaf {
+  color: var(--fb-text);
+  font-weight: 600;
+  cursor: default;
+}
+
+.crumbs a.leaf:hover {
+  background: transparent;
+}
+
+.crumb-sep {
+  color: var(--fb-text-faint);
+}
+
+.files-total {
+  font-size: 12.5px;
+  color: var(--fb-text-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 目录行：这一层做什么都在这行上——进去、打包、删掉 */
+.dir-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 168px 128px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--fb-border);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.dir-row:hover {
+  background: var(--fb-hover);
+}
+
+.dir-row .row-icon {
+  font-size: 16px;
+  color: #d9982f;
+}
+
+.dir-row .row-name {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-row .row-meta {
+  font-size: 12px;
+  color: var(--fb-text-faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dir-row .row-actions {
+  justify-self: end;
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 88px 148px 128px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--fb-border);
+  font-size: 13px;
+  transition: background 0.14s ease;
+}
+
+.file-row:hover {
+  background: var(--fb-hover);
+}
+
+.file-row .row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-row .row-size {
+  text-align: right;
+  font-size: 12px;
+  color: var(--fb-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-row .row-time {
+  font-size: 12px;
+  color: var(--fb-text-faint);
+}
+
+.file-row .row-actions {
+  display: flex;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+/* 类型块：比一个通用文件图标多给一点信息——扫一眼就知道这堆是什么 */
+.type-tile {
+  width: 28px;
+  height: 22px;
+  border-radius: 5px;
+  background: #f0f3fa;
+  color: #5f6b7e;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: grid;
+  place-items: center;
+}
+
+.empty-folder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 60px 24px;
+  color: var(--fb-text-faint);
+}
+
+.empty-folder .el-icon {
+  font-size: 30px;
+  color: #c3cddd;
+}
+
+.empty-folder p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.search-pane {
+  padding-bottom: 6px;
+}
+
+@media (max-width: 1080px) {
+  .files-body {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .dir-row {
+    grid-template-columns: 22px minmax(0, 1fr) 128px 120px;
+  }
+  .file-row {
+    grid-template-columns: 28px minmax(0, 1fr) 78px 128px 110px;
+  }
+}
+
+/* ==========================================================================
    表格
    ========================================================================== */
 

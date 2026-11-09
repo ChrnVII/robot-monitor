@@ -135,6 +135,8 @@ CREATE INDEX IF NOT EXISTS idx_files_created ON files(deleted_at, created_at DES
 -- 再按 sha256 命中。没有这两条索引，每次取件都要全表扫一遍 files。
 CREATE INDEX IF NOT EXISTS idx_files_size ON files(agent_id, size);
 CREATE INDEX IF NOT EXISTS idx_files_sha ON files(agent_id, sha256);
+-- 目录浏览按路径前缀和"同路径是否已有文件"查询，都走这条。
+CREATE INDEX IF NOT EXISTS idx_files_rel ON files(agent_id, rel_path);
 
 -- 审计日志：每一次文件操作都要能还原出"谁、什么时候、对哪个文件做了什么"
 CREATE TABLE IF NOT EXISTS audit_log (

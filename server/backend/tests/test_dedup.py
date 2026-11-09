@@ -74,3 +74,20 @@ async def test_duplicate_groups_ignores_trash_and_orders_by_wasted_space(tmp_pat
         ]
     finally:
         await db.close()
+
+
+def test_shares_storage_tells_linked_from_copied(tmp_path, monkeypatch):
+    """合并过的两条记录共用一个 inode；没合并过的各占一份，这才是要报的。"""
+    from filebridge_server.cli import _shares_storage
+    from filebridge_server.config import settings
+
+    monkeypatch.setattr(settings, "storage_dir", tmp_path)
+    (tmp_path / "a").write_bytes(b"same")
+    (tmp_path / "b").write_bytes(b"same")
+    (tmp_path / "c").write_bytes(b"same")
+
+    assert _shares_storage(["a", "b"]) is False
+
+    assert _link_over(tmp_path, "a", "b") is True
+    assert _shares_storage(["a", "b"]) is True
+    assert _shares_storage(["a", "b", "c"]) is False

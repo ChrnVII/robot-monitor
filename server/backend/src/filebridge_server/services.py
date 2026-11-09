@@ -21,6 +21,8 @@ import logging
 import math
 import time
 import uuid
+import zipfile
+from pathlib import Path
 from typing import Any
 
 from .auth import AuthService
@@ -61,6 +63,29 @@ def _chunk_count(total_size: int, chunk_size: int) -> int:
     if total_size <= 0:
         return 0
     return math.ceil(total_size / chunk_size)
+
+
+def _clean_prefix(path: str) -> str:
+    """目录前缀统一走一遍路径规整，顺带挡掉 `..` 之类的东西。"""
+    try:
+        return normalize_client_path(path)
+    except ValueError as exc:
+        raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, str(exc)) from exc
+
+
+def _prefix_like(prefix: str) -> str:
+    if not prefix:
+        return "%"
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}/%"
+
+
+def _join_path(prefix: str, name: str) -> str:
+    return f"{prefix}/{name}" if prefix else name
+
+
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
 
 
 class TaskService:
@@ -155,14 +180,23 @@ class TaskService:
             await self._mark_task_failed(task_id, ErrorCode.INVALID_ARGUMENTS, message)
             raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, message)
 
-        # ② 内容判重：库里已经有一模一样的文件时，连传都不传。
-        #    先比大小是有意为之——让 B 算 sha256 要整份读盘，没有同尺寸候选就
-        #    别白读；真正省下的是那几 GB 的上传。
-        duplicate = await self._find_duplicate_before_upload(
+        # ② 上传前判重：先比大小，再让 B 算一次哈希。命中就不传字节。
+        found = await self._lookup_before_upload(
             agent_id, rel, total_size, max_wait=hash_timeout
         )
-        if duplicate is not None:
-            return await self._mark_task_deduped(task_id, duplicate, actor=actor)
+        if found is not None:
+            kind, source = found
+            if kind == "skipped":
+                return await self._mark_task_deduped(task_id, source, actor=actor)
+            return await self._store_linked(
+                task_id,
+                agent_id=agent_id,
+                rel=rel,
+                filename=filename,
+                size=total_size,
+                source=source,
+                actor=actor,
+            )
 
         # ③ 磁盘预检：宁可建任务时直接拒绝，也不要传到 90% 再说放不下
         try:
@@ -221,19 +255,35 @@ class TaskService:
         return await self.get_task(task_id)
 
     # ------------------------------------------------------------------
-    # 内容判重
+    # 内容判重与落库
     #
-    # 判重的口径是**内容**（sha256 相同），不是路径：同一份视频换个目录再取一次，
-    # 也还是同一份。去重范围限定在同一台节点内——跨节点合并会让"这台机器取的
-    # 文件"凭空出现在另一台名下，而下面的会话模型是按节点组织的。
+    # 两条规则，各管一件事：
+    #   记录按路径 —— 一个路径在库里只有一条，树才和远端目录长得一样；
+    #   磁盘按内容 —— sha 相同就硬链接，实际只占一份。
+    # 于是"重复"分两种：同路径同内容 = 什么都不用做；换了路径的同内容 = 不传字节，
+    # 但要在新路径上建一条记录，指向同一份数据。
     # ------------------------------------------------------------------
 
-    async def _find_duplicate_before_upload(
+    async def _file_at(self, agent_id: str, rel: str) -> Any | None:
+        """这个路径在库里已有的那条（未删除）。老数据 rel_path 可能为空，用名字兜底。"""
+        return await self.db.fetchone(
+            "SELECT * FROM files WHERE agent_id = ? AND COALESCE(rel_path, orig_name) = ?"
+            " AND deleted_at IS NULL",
+            (agent_id, rel),
+        )
+
+    async def _file_with_sha(self, agent_id: str, digest: str) -> Any | None:
+        return await self.db.fetchone(
+            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL"
+            " ORDER BY created_at LIMIT 1",
+            (agent_id, digest),
+        )
+
+    async def _lookup_before_upload(
         self, agent_id: str, rel: str, total_size: int, *, max_wait: float | None = None
-    ) -> Any | None:
-        """上传前判重。命中返回库里那条已存在的 file 行，否则 None。"""
-        # 先按大小筛。绝大多数文件大小是唯一的，这一步就把它们挡在哈希之外，
-        # 不需要为每个文件白读一遍盘。
+    ) -> tuple[str, Any] | None:
+        """上传前查一次。返回 ("skipped", 同路径的那条) / ("linked", 同内容的另一条) / None。"""
+        # 先比大小：绝大多数文件大小唯一，这一步就把它们挡在"读盘算哈希"之外。
         candidate = await self.db.fetchone(
             "SELECT 1 AS hit FROM files WHERE agent_id = ? AND size = ?"
             " AND deleted_at IS NULL LIMIT 1",
@@ -248,14 +298,11 @@ class TaskService:
 
         try:
             result = await self.hub.request(
-                agent_id,
-                CommandName.HASH_FILE,
-                {"rel": rel},
-                timeout=budget,
+                agent_id, CommandName.HASH_FILE, {"rel": rel}, timeout=budget
             )
         except AgentError as exc:
-            # 两类正常失败：老版本 agent 回 unknown_command；慢盘读超时。
-            # 这只是一次"省下整份上传"的机会，抓不住就照常传，不能拦路。
+            # 老版本 agent 回 unknown_command、慢盘读超时。这只是一次省掉整份上传的
+            # 机会，抓不住就照常传，不能拦路。
             logger.info("pre-hash skipped for %s: %s", rel, exc)
             return None
 
@@ -264,10 +311,74 @@ class TaskService:
             logger.warning("agent returned a malformed sha256 for %s: %r", rel, digest)
             return None
 
-        return await self.db.fetchone(
-            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL LIMIT 1",
-            (agent_id, digest),
+        same = await self._file_at(agent_id, rel)
+        if same is not None and same["sha256"] == digest:
+            return ("skipped", same)
+
+        twin = await self._file_with_sha(agent_id, digest)
+        if twin is not None:
+            return ("linked", twin)
+        return None
+
+    async def _store_linked(
+        self,
+        task_id: str,
+        *,
+        agent_id: str,
+        rel: str,
+        filename: str,
+        size: int,
+        source: Any,
+        upload_id: str | None = None,
+        transferred: int = 0,
+        actor: str = "admin",
+    ) -> dict[str, Any]:
+        """内容已经在库里：不传字节，只在新路径上建（或替换）一条记录。"""
+        same = await self._file_at(agent_id, rel)
+        now = time.time()
+
+        if same is not None:
+            # 同一路径、内容变了：换的是目录项，不是 inode 里的字节，
+            # 所以硬链接到别处的同内容副本不会被这次替换污染。
+            if upload_id is not None:
+                await self.storage.commit_over(upload_id, same["stored_path"])
+            else:
+                await self.storage.link_over(source["stored_path"], same["stored_path"])
+            await self.db.execute(
+                "UPDATE files SET sha256 = ?, size = ?, created_at = ? WHERE id = ?",
+                (source["sha256"], size, now, same["id"]),
+            )
+            file_id = same["id"]
+            outcome = "replaced"
+        else:
+            file_id = uuid.uuid4().hex
+            await self.storage.link_existing(source["stored_path"], agent_id, file_id)
+            stored_path = str(
+                self.storage.final_path(agent_id, file_id).relative_to(self.settings.storage_dir)
+            )
+            await self.db.execute(
+                "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256, stored_path,"
+                " created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                (file_id, agent_id, filename, rel, size, source["sha256"], stored_path, now),
+            )
+            outcome = "linked"
+
+        await self.db.execute(
+            "UPDATE tasks SET status = ?, file_id = ?, transferred_bytes = ?, updated_at = ?"
+            " WHERE id = ?",
+            (DONE, file_id, transferred, now, task_id),
         )
+        if upload_id is not None:
+            await self.storage.drop_staging(upload_id)
+            await self.db.execute(
+                "UPDATE uploads SET status = ?, updated_at = ? WHERE id = ?", (DONE, now, upload_id)
+            )
+
+        await self.auth.audit(actor, f"file.{outcome}", target=file_id, detail=f"{agent_id}:{rel}")
+        self.bus.publish("files_changed", {"agent_id": agent_id, "path": rel})
+        self._publish_task(task_id, extra={"file_id": file_id})
+        logger.info("task %s %s into %s from file %s", task_id, outcome, rel, source["id"])
+        return await self.get_task(task_id)
 
     async def _mark_task_deduped(
         self,
@@ -773,45 +884,64 @@ class TaskService:
 
         # 落盘前再判一次重。上传前那次可能没命中：老版本 agent 不支持 hash_file，
         # 或者两个相同内容在并发上传（谁都没落库，彼此都看不见）。
-        # 命中就把这份 .part 丢掉——一行 files 都不写，磁盘也不会多出一份。
-        existing = await self.db.fetchone(
-            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL LIMIT 1",
-            (row["agent_id"], actual),
-        )
-        if existing is not None:
+        rel = row["rel_path"] or row["filename"]
+        size = int(row["total_size"])
+
+        same = await self._file_at(row["agent_id"], rel)
+        if same is not None and same["sha256"] == actual:
+            # 同一路径、内容没变：这份字节是多余的，丢掉。
             await self.storage.drop_staging(upload_id)
             return await self._mark_task_deduped(
+                row["task_id"], same, upload_id=upload_id, transferred=size, actor="agent"
+            )
+
+        twin = await self._file_with_sha(row["agent_id"], actual)
+        if twin is not None:
+            # 内容在别的路径上已经有了一份：不落新盘，硬链接过去再建记录。
+            return await self._store_linked(
                 row["task_id"],
-                existing,
+                agent_id=row["agent_id"],
+                rel=rel,
+                filename=row["filename"],
+                size=size,
+                source=twin,
                 upload_id=upload_id,
-                transferred=int(row["total_size"]),
+                transferred=size,
                 actor="agent",
             )
 
         try:
-            await self.storage.commit(upload_id, row["agent_id"], file_id)
+            if same is not None:
+                await self.storage.commit_over(upload_id, same["stored_path"])
+            else:
+                await self.storage.commit(upload_id, row["agent_id"], file_id)
         except Exception as exc:
             logger.exception("commit for upload %s blew up", upload_id)
             await self._fail_upload(upload_id, ErrorCode.INTERNAL, f"落盘失败：{exc}")
             raise ApiError(500, ErrorCode.INTERNAL, f"落盘失败：{exc}") from exc
 
         now = time.time()
-        stored_path = str(self.storage.final_path(row["agent_id"], file_id).relative_to(self.settings.storage_dir))
-        async with self.db.write_transaction() as conn:
-            await conn.execute(
-                "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256, stored_path,"
-                " created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                (
-                    file_id,
-                    row["agent_id"],
-                    row["filename"],
-                    row["rel_path"],
-                    row["total_size"],
-                    actual,
-                    stored_path,
-                    now,
-                ),
+        if same is not None:
+            # 同一路径、内容变了：原地换掉字节，行 id 和存储路径都不动。
+            file_id = same["id"]
+            stored_path = same["stored_path"]
+        else:
+            stored_path = str(
+                self.storage.final_path(row["agent_id"], file_id).relative_to(self.settings.storage_dir)
             )
+
+        async with self.db.write_transaction() as conn:
+            if same is not None:
+                await conn.execute(
+                    "UPDATE files SET sha256 = ?, size = ?, created_at = ? WHERE id = ?",
+                    (actual, size, now, file_id),
+                )
+            else:
+                await conn.execute(
+                    "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256, stored_path,"
+                    " created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                    (file_id, row["agent_id"], row["filename"], rel, size, actual, stored_path, now),
+                )
             await conn.execute(
                 "UPDATE uploads SET status = ?, updated_at = ? WHERE id = ?", (DONE, now, upload_id)
             )
@@ -994,6 +1124,176 @@ class TaskService:
             "limit": limit,
             "offset": offset,
         }
+
+    # ------------------------------------------------------------------
+    # 按目录浏览（文件库的树）
+    #
+    # 目录不是一个实体，它就是 rel_path 的前缀。所以这里不需要新表：一次查询
+    # 按"下一段路径"分组，就得到这一层的子目录。子目录的 files/size 是**递归**
+    # 统计的，展开前就知道这个文件夹里有多少东西、多大。
+    # ------------------------------------------------------------------
+
+    async def browse(
+        self,
+        *,
+        agent_id: str,
+        path: str = "",
+        deleted: bool = False,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        prefix = _clean_prefix(path)
+        start = len(prefix) + 2 if prefix else 1
+        like = _prefix_like(prefix)
+        scope = "deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"
+        p = "COALESCE(rel_path, orig_name)"
+
+        totals = await self.db.fetchone(
+            f"SELECT COUNT(*) AS files, COALESCE(SUM(size), 0) AS size FROM files"
+            f" WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\')",
+            (agent_id, prefix, like),
+        )
+
+        dirs = await self.db.fetchall(
+            f"SELECT substr(rest, 1, instr(rest, '/') - 1) AS name,"
+            f" COUNT(*) AS files, COALESCE(SUM(size), 0) AS size"
+            f" FROM (SELECT substr({p}, ?) AS rest, size FROM files"
+            f"       WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\'))"
+            f" WHERE instr(rest, '/') > 0 GROUP BY name ORDER BY name",
+            (start, agent_id, prefix, like),
+        )
+
+        rows = await self.db.fetchall(
+            f"SELECT id, orig_name, {p} AS path, size, created_at, deleted_at FROM files"
+            f" WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
+            f" AND instr(substr({p}, ?), '/') = 0"
+            f" ORDER BY orig_name LIMIT ? OFFSET ?",
+            (agent_id, prefix, like, start, limit, offset),
+        )
+
+        return {
+            "agent_id": agent_id,
+            "path": prefix,
+            "deleted": deleted,
+            "dirs": [
+                {
+                    "name": row["name"],
+                    "path": _join_path(prefix, row["name"]),
+                    "files": int(row["files"]),
+                    "size": int(row["size"]),
+                }
+                for row in dirs
+            ],
+            "files": [
+                {
+                    "id": row["id"],
+                    "name": row["orig_name"],
+                    "path": row["path"],
+                    "size": int(row["size"]),
+                    "created_at": row["created_at"],
+                    "deleted_at": row["deleted_at"],
+                }
+                for row in rows
+            ],
+            "total_files": int(totals["files"]),
+            "total_size": int(totals["size"]),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    async def archive(self, *, agent_id: str, path: str) -> tuple[Path, str]:
+        """把一个目录打成 zip。返回 (临时文件, 下载名)。"""
+        prefix = _clean_prefix(path)
+        like = _prefix_like(prefix)
+        p = "COALESCE(rel_path, orig_name)"
+
+        rows = await self.db.fetchall(
+            f"SELECT id, orig_name, {p} AS path, stored_path FROM files"
+            f" WHERE agent_id = ? AND deleted_at IS NULL AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
+            f" ORDER BY {p}",
+            (agent_id, prefix, like),
+        )
+        if not rows:
+            raise ApiError(404, ErrorCode.FILE_NOT_FOUND, "这个目录里没有可打包的文件")
+
+        label = basename_of(prefix) if prefix else "files"
+        target = self.settings.storage_dir / "tmp" / f"{uuid.uuid4().hex}.zip"
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        def _write() -> None:
+            with zipfile.ZipFile(target, "w", zipfile.ZIP_STORED) as bundle:
+                for row in rows:
+                    blob = self.settings.storage_dir / row["stored_path"]
+                    if not blob.is_file():
+                        logger.warning("archive skipped missing blob %s", blob)
+                        continue
+                    if prefix:
+                        member = row["path"][len(prefix) + 1 :]
+                        bundle.write(blob, arcname=f"{label}/{member}")
+                    else:
+                        bundle.write(blob, arcname=row["path"])
+
+        # 打包是密集的同步 IO：直接写在协程里会卡住事件循环，心跳发不出去。
+        await asyncio.to_thread(_write)
+        return target, f"{label}.zip"
+
+    async def delete_tree(self, *, agent_id: str, path: str, actor: str = "admin") -> dict[str, int]:
+        prefix = _clean_prefix(path)
+        if not prefix:
+            raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, "整库删除请用节点管理，不要从这里下手")
+
+        like = _prefix_like(prefix)
+        p = "COALESCE(rel_path, orig_name)"
+        rows = await self.db.fetchall(
+            f"SELECT id FROM files WHERE agent_id = ? AND deleted_at IS NULL"
+            f" AND {p} LIKE ? ESCAPE '\\'",
+            (agent_id, like),
+        )
+        if not rows:
+            return {"deleted": 0}
+
+        ids = [row["id"] for row in rows]
+        for file_id in ids:
+            await self.storage.move_to_trash(agent_id, file_id)
+
+        now = time.time()
+        for chunk in _chunks(ids, 400):
+            placeholders = ",".join("?" * len(chunk))
+            await self.db.execute(
+                f"UPDATE files SET deleted_at = ? WHERE id IN ({placeholders})", [now, *chunk]
+            )
+
+        await self.auth.audit(
+            actor, "file.delete_tree", target=agent_id, detail=f"{prefix} · {len(ids)} 个文件"
+        )
+        self.bus.publish("files_changed", {"agent_id": agent_id, "path": prefix, "removed": len(ids)})
+        logger.info("deleted %d file(s) under %s:%s", len(ids), agent_id, prefix)
+        return {"deleted": len(ids)}
+
+    async def sweep_archive_temp(self, *, max_age: float = 3600.0) -> int:
+        """清理打包下载留下的临时 zip。
+
+        正常路径是响应结束时由 BackgroundTask 删掉；只有进程被打死才会剩下。
+        一小时的门槛足够宽：一个正在下载的包，它的 mtime 不会变，但也不会
+        慢到一个小时还没下完。
+        """
+        folder = self.settings.storage_dir / "tmp"
+        cutoff = time.time() - max_age
+
+        def _scan() -> int:
+            if not folder.exists():
+                return 0
+            removed = 0
+            for entry in folder.glob("*.zip"):
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        entry.unlink(missing_ok=True)
+                        removed += 1
+                except OSError:
+                    continue
+            return removed
+
+        return await asyncio.to_thread(_scan)
 
     async def soft_delete(self, file_id: str, *, actor: str = "admin") -> None:
         row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))

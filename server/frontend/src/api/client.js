@@ -59,6 +59,12 @@ export const TasksApi = {
 
 export const FilesApi = {
   list: (params) => api.get('/api/v1/files', { params }),
+  // 按目录列一层：子目录（递归统计）+ 直属文件。目录就是 rel_path 的前缀。
+  browse: (params) => api.get('/api/v1/files/browse', { params }),
+  // 整目录打包。用浏览器直接下载，不经过 axios——几 GB 的包不该先进内存。
+  archiveUrl: (agentId, path) =>
+    `/api/v1/files/archive?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
+  removeTree: (agentId, path) => api.delete('/api/v1/files/tree', { params: { agent_id: agentId, path } }),
   downloadUrl: (fileId) => `/api/v1/files/${fileId}/download`,
   remove: (fileId) => api.delete(`/api/v1/files/${fileId}`),
   restore: (fileId) => api.post(`/api/v1/files/${fileId}/restore`),

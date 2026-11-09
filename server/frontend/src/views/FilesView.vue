@@ -5,70 +5,164 @@ import { AgentsApi, FilesApi, errorMessage } from '../api/client'
 import { dirOf, formatBytes, formatTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
-// 被 keep-alive 缓存（见 AppLayout）：切走再回来，Tab、搜索词、页码都还在
+// 被 keep-alive 缓存：切走再回来，当前目录和树上的展开状态都还在
 defineOptions({ name: 'FilesView' })
 
 const { on } = useLiveEvents()
 
 const tab = ref('library')
 const query = ref('')
-const page = ref(1)
-const pageSize = ref(20)
-const total = ref(0)
-const files = ref([])
 const loading = ref(false)
+
+// 节点列表只用来搭树的根和给"来源"列取名字
+const agents = ref([])
 const agentNames = ref({})
 
-let off = null
+const treeRef = ref(null)
+const treeKey = ref(0)
+
+// 当前所在目录。agent + path 是这一页唯一的"位置"状态。
+const current = ref({ agent: '', path: '' })
+const listing = ref({ dirs: [], files: [], total_files: 0, total_size: 0 })
+
+// 搜索结果：跨目录、跨节点，是一条平铺的路
+const results = ref([])
+const resultTotal = ref(0)
 let searchTimer = null
 
+const searching = computed(() => Boolean(query.value.trim()))
 const deleted = computed(() => tab.value === 'trash')
+const segments = computed(() => current.value.path.split('/').filter(Boolean))
+const emptyText = computed(() => {
+  if (!current.value.agent) return '还没有接入任何节点'
+  return deleted.value ? '这个目录没有已删除的文件' : '这个目录是空的'
+})
 
 function agentName(id) {
-  // 节点被删掉之后，文件仍然留在库里（删节点≠删数据），这里给个能读懂的说法，
-  // 否则来源列会突然变成一串十六进制
   if (!id) return '—'
   return agentNames.value[id] || `已移除的节点（${id.slice(0, 6)}）`
 }
 
+/** 类型块的文字：取扩展名，太长的截到 3 个字符。 */
+function extOf(name) {
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0 || dot === name.length - 1) return 'FILE'
+  return name.slice(dot + 1, dot + 4).toUpperCase()
+}
+
+// --- 树的懒加载 ---------------------------------------------------------
+
 async function loadAgents() {
   try {
     const { data } = await AgentsApi.list()
-    agentNames.value = Object.fromEntries((data.items || []).map((item) => [item.id, item.name]))
-  } catch {
-    // 名字只是展示用，取不到就显示 id
+    agents.value = data.items || []
+    agentNames.value = Object.fromEntries(agents.value.map((item) => [item.id, item.name]))
+    if (!current.value.agent && agents.value.length) {
+      current.value = { agent: agents.value[0].id, path: '' }
+      loadListing()
+    }
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
   }
 }
 
-async function load({ silent = false } = {}) {
-  if (!silent) loading.value = true
+async function loadNode(node, resolve) {
+  if (node.level === 0) {
+    return resolve(
+      agents.value.map((agent) => ({
+        key: `${agent.id}:`,
+        label: agent.name,
+        count: agent.files,
+        agent: agent.id,
+        path: '',
+        leaf: false
+      }))
+    )
+  }
+
+  const { agent, path } = node.data
   try {
-    const { data } = await FilesApi.list({
-      q: query.value.trim() || undefined,
-      deleted: deleted.value,
-      limit: pageSize.value,
-      offset: (page.value - 1) * pageSize.value
-    })
-    files.value = data.items || []
-    total.value = data.total || 0
+    const { data } = await FilesApi.browse({ agent_id: agent, path, deleted: deleted.value })
+    resolve(
+      data.dirs.map((dir) => ({
+        key: `${agent}:${dir.path}`,
+        label: dir.name,
+        count: dir.files,
+        agent,
+        path: dir.path,
+        leaf: false
+      }))
+    )
   } catch (error) {
     ElMessage.error(errorMessage(error))
+    resolve([])
+  }
+}
+
+// --- 右栏 ---------------------------------------------------------------
+
+async function loadListing({ silent = false } = {}) {
+  if (!current.value.agent) return
+  if (!silent) loading.value = true
+  try {
+    const { data } = await FilesApi.browse({
+      agent_id: current.value.agent,
+      path: current.value.path,
+      deleted: deleted.value
+    })
+    listing.value = data
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+    listing.value = { dirs: [], files: [], total_files: 0, total_size: 0 }
   } finally {
     loading.value = false
   }
 }
 
-function search() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    page.value = 1
-    load()
-  }, 250)
+function openFolder(agent, path) {
+  query.value = ''
+  current.value = { agent, path }
+  treeRef.value?.setCurrentKey(`${agent}:${path}`)
+  loadListing()
 }
 
-async function remove(row) {
+function onNodeClick(data) {
+  openFolder(data.agent, data.path)
+}
+
+function pathAt(index) {
+  return segments.value.slice(0, index + 1).join('/')
+}
+
+// --- 操作 ---------------------------------------------------------------
+
+function downloadDir(path) {
+  window.location.href = FilesApi.archiveUrl(current.value.agent, path)
+}
+
+async function removeDir(dir) {
   try {
-    await ElMessageBox.confirm(`把「${row.name}」移入回收站？`, '删除文件', {
+    await ElMessageBox.confirm(
+      `删除「${dir.name}」？其中 ${dir.files} 个文件会移入回收站，30 天内可以还原。`,
+      '删除目录',
+      { confirmButtonText: '移入回收站', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    const { data } = await FilesApi.removeTree(current.value.agent, dir.path)
+    ElMessage.success(`已移入回收站：${data.deleted} 个文件`)
+    loadListing()
+    treeKey.value += 1
+  } catch (error) {
+    ElMessage.error(errorMessage(error))
+  }
+}
+
+async function removeFile(file) {
+  try {
+    await ElMessageBox.confirm(`把「${file.name}」移入回收站？`, '删除文件', {
       confirmButtonText: '移入回收站',
       cancelButtonText: '取消',
       type: 'warning'
@@ -77,28 +171,28 @@ async function remove(row) {
     return
   }
   try {
-    await FilesApi.remove(row.id)
+    await FilesApi.remove(file.id)
     ElMessage.success('已移入回收站')
-    load()
+    loadListing()
   } catch (error) {
     ElMessage.error(errorMessage(error))
   }
 }
 
-async function restore(row) {
+async function restore(file) {
   try {
-    await FilesApi.restore(row.id)
+    await FilesApi.restore(file.id)
     ElMessage.success('已还原')
-    load()
+    loadListing()
   } catch (error) {
     ElMessage.error(errorMessage(error))
   }
 }
 
-async function purge(row) {
+async function purge(file) {
   try {
     await ElMessageBox.confirm(
-      `彻底删除「${row.name}」？磁盘上的文件会被删除，无法恢复。`,
+      `彻底删除「${file.name}」？磁盘上的文件会被删除，无法恢复。`,
       '彻底删除',
       { confirmButtonText: '彻底删除', cancelButtonText: '取消', type: 'error' }
     )
@@ -106,24 +200,55 @@ async function purge(row) {
     return
   }
   try {
-    await FilesApi.purge(row.id)
+    await FilesApi.purge(file.id)
     ElMessage.success('已彻底删除')
-    load()
+    loadListing()
   } catch (error) {
     ElMessage.error(errorMessage(error))
   }
 }
 
-watch(tab, () => {
-  page.value = 1
-  load()
-})
+// --- 搜索 ---------------------------------------------------------------
 
-// 文件事件的订阅：进页面开、离开关（缓存组件不关会在后台白白请求）
+function search() {
+  clearTimeout(searchTimer)
+  if (!query.value.trim()) {
+    results.value = []
+    return
+  }
+  searchTimer = setTimeout(async () => {
+    loading.value = true
+    try {
+      const { data } = await FilesApi.list({
+        q: query.value.trim(),
+        deleted: deleted.value,
+        limit: 100
+      })
+      results.value = data.items || []
+      resultTotal.value = data.total || 0
+    } catch (error) {
+      ElMessage.error(errorMessage(error))
+    } finally {
+      loading.value = false
+    }
+  }, 250)
+}
+
+/** 从搜索结果跳回它所在的目录。 */
+function reveal(item) {
+  const path = item.rel_path && item.name ? dirOf(item.rel_path, item.name).replace(/\/$/, '') : ''
+  openFolder(item.agent_id, path)
+}
+
+// --- 生命周期 -----------------------------------------------------------
+
 function startWatching() {
   off?.()
   off = on((event) => {
-    if (['file_added', 'file_removed', 'file_restored'].includes(event.type)) load()
+    if (event.type === 'files_changed') {
+      loadListing({ silent: true })
+      if (searching.value) search()
+    }
   })
 }
 
@@ -132,11 +257,17 @@ function stopWatching() {
   off = null
 }
 
+let off = null
 let firstActivate = true
+
+watch(tab, () => {
+  results.value = []
+  treeKey.value += 1
+  loadListing()
+})
 
 onMounted(() => {
   loadAgents()
-  load()
   startWatching()
 })
 
@@ -145,9 +276,8 @@ onActivated(() => {
     firstActivate = false
     return
   }
-  // 回来静默对账：离开期间可能又有文件入库/被删
   loadAgents()
-  load({ silent: true })
+  loadListing({ silent: true })
   startWatching()
 })
 
@@ -163,7 +293,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="panel">
+  <div class="panel files-panel">
     <div class="panel-head">
       <el-tabs v-model="tab" class="panel-tabs">
         <el-tab-pane label="文件库" name="library" />
@@ -172,9 +302,9 @@ onUnmounted(() => {
 
       <el-input
         v-model="query"
-        placeholder="按文件名搜索"
+        placeholder="搜索文件名或路径"
         clearable
-        style="max-width: 260px"
+        style="max-width: 280px"
         @input="search"
         @clear="search"
       >
@@ -184,64 +314,130 @@ onUnmounted(() => {
       </el-input>
     </div>
 
-    <el-table :data="files" v-loading="loading" style="width: 100%" :empty-text="deleted ? '回收站是空的' : '还没有文件，去「取件」取一个'">
-      <el-table-column label="文件名" min-width="240">
-        <template #default="{ row }">
-          <!-- 与任务页一致：一行 "路径/文件名"，路径压暗、文件名加深。
-               老数据 rel_path 可能为空，那时只显示文件名。 -->
-          <div class="file-cell" :title="row.rel_path || row.name">
-            <el-icon class="file-icon"><Document /></el-icon>
-            <span class="file-dir">{{ dirOf(row.rel_path, row.name) }}</span>
-            <span class="file-name">{{ row.name }}</span>
-          </div>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="大小" width="110" align="right">
-        <template #default="{ row }">
-          <span class="mono">{{ formatBytes(row.size) }}</span>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="来源节点" width="140">
-        <template #default="{ row }">
-          <span class="muted">{{ agentName(row.agent_id) }}</span>
-        </template>
-      </el-table-column>
-
-      <el-table-column :label="deleted ? '删除时间' : '入库时间'" width="170">
-        <template #default="{ row }">
-          <span class="muted">{{ formatTime(deleted ? row.deleted_at : row.created_at) }}</span>
-        </template>
-      </el-table-column>
-
-      <el-table-column label="操作" width="150" fixed="right">
-        <template #default="{ row }">
-          <div class="row-actions">
-            <template v-if="!deleted">
+    <!-- 搜索态：跨目录平铺，点一条跳回它所在的目录 -->
+    <div v-if="searching" class="search-pane">
+      <el-table :data="results" v-loading="loading" style="width: 100%" :empty-text="deleted ? '回收站里没有匹配的文件' : '没有匹配的文件'">
+        <el-table-column label="文件" min-width="300">
+          <template #default="{ row }">
+            <div class="file-cell" :title="row.rel_path || row.name">
+              <el-icon class="file-icon"><Document /></el-icon>
+              <span class="file-dir">{{ dirOf(row.rel_path, row.name) }}</span>
+              <span class="file-name">{{ row.name }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源节点" width="150">
+          <template #default="{ row }">
+            <span class="muted">{{ agentName(row.agent_id) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="大小" width="100" align="right">
+          <template #default="{ row }">
+            <span class="mono">{{ formatBytes(row.size) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="130">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <a class="link-btn" @click="reveal(row)">定位</a>
               <a :href="FilesApi.downloadUrl(row.id)" class="link-btn">下载</a>
-              <span class="danger-link" @click="remove(row)">删除</span>
-            </template>
-            <template v-else>
-              <span class="link-btn" @click="restore(row)">还原</span>
-              <span class="danger-link" @click="purge(row)">彻底删除</span>
-            </template>
-          </div>
-        </template>
-      </el-table-column>
-    </el-table>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <p v-if="resultTotal > results.length" class="muted" style="padding: 8px 20px 14px">
+        共 {{ resultTotal }} 条，只显示前 {{ results.length }} 条。加个更具体的关键词试试。
+      </p>
+    </div>
 
-    <div class="pager">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        :total="total"
-        :page-sizes="[20, 50, 100]"
-        layout="total, sizes, prev, pager, next"
-        background
-        @size-change="load()"
-        @current-change="load()"
-      />
+    <div v-else class="files-body">
+      <aside class="files-tree">
+        <el-tree
+          v-if="agents.length"
+          :key="treeKey"
+          ref="treeRef"
+          lazy
+          :load="loadNode"
+          node-key="key"
+          :props="{ label: 'label', isLeaf: 'leaf' }"
+          highlight-current
+          @node-click="onNodeClick"
+        >
+          <template #default="{ data }">
+            <span class="tree-node">
+              <el-icon class="node-icon dir"><Folder /></el-icon>
+              <span class="node-name">{{ data.label }}</span>
+              <span class="node-count">{{ data.count }}</span>
+            </span>
+          </template>
+        </el-tree>
+        <div v-else class="muted" style="padding: 24px 14px; text-align: center">
+          还没有接入任何节点
+        </div>
+      </aside>
+
+      <section class="files-main" v-loading="loading">
+        <div class="files-bar">
+          <nav class="crumbs">
+            <a @click="openFolder(current.agent, '')">{{ agentName(current.agent) }}</a>
+            <template v-for="(segment, index) in segments" :key="segment">
+              <span class="crumb-sep">/</span>
+              <a
+                :class="{ leaf: index === segments.length - 1 }"
+                @click="openFolder(current.agent, pathAt(index))"
+              >{{ segment }}</a>
+            </template>
+          </nav>
+          <span class="files-total">
+            {{ listing.total_files }} 个文件 · {{ formatBytes(listing.total_size) }}
+          </span>
+        </div>
+
+        <div v-if="listing.dirs.length" class="dir-rows">
+          <div
+            v-for="dir in listing.dirs"
+            :key="dir.path"
+            class="dir-row"
+            @click="openFolder(current.agent, dir.path)"
+          >
+            <el-icon class="row-icon"><FolderFilled /></el-icon>
+            <span class="row-name">{{ dir.name }}</span>
+            <span class="row-meta">{{ dir.files }} 个文件 · {{ formatBytes(dir.size) }}</span>
+            <span class="row-actions">
+              <a v-if="!deleted" class="link-btn" @click.stop="downloadDir(dir.path)">打包下载</a>
+              <a v-if="!deleted" class="danger-link" @click.stop="removeDir(dir)">删除</a>
+            </span>
+          </div>
+        </div>
+
+        <div v-if="listing.files.length" class="file-rows">
+          <div v-for="file in listing.files" :key="file.id" class="file-row">
+            <span class="type-tile">{{ extOf(file.name) }}</span>
+            <span class="row-name" :title="file.path">{{ file.name }}</span>
+            <span class="row-size">{{ formatBytes(file.size) }}</span>
+            <span class="row-time">{{ formatTime(deleted ? file.deleted_at : file.created_at) }}</span>
+            <span class="row-actions">
+              <template v-if="!deleted">
+                <a :href="FilesApi.downloadUrl(file.id)" class="link-btn">下载</a>
+                <a class="danger-link" @click="removeFile(file)">删除</a>
+              </template>
+              <template v-else>
+                <a class="link-btn" @click="restore(file)">还原</a>
+                <a class="danger-link" @click="purge(file)">彻底删除</a>
+              </template>
+            </span>
+          </div>
+        </div>
+
+        <p v-if="listing.files.length >= (listing.limit || 500)" class="muted" style="padding: 10px 20px">
+          文件太多，只显示前 {{ listing.limit }} 个。用搜索定位更具体。
+        </p>
+
+        <div v-if="!loading && !listing.dirs.length && !listing.files.length" class="empty-folder">
+          <el-icon><FolderOpened /></el-icon>
+          <p>{{ emptyText }}</p>
+        </div>
+      </section>
     </div>
   </div>
 </template>

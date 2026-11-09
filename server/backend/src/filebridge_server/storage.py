@@ -152,6 +152,59 @@ class Storage:
         destination = self.final_path(agent_id, file_id)
         await asyncio.to_thread(self._commit, part, destination)
 
+    async def commit_over(self, upload_id: str, stored_path: str) -> None:
+        """把 staging 换到一条**已存在**的落盘路径上（同一路径内容变了时用）。
+
+        `os.replace` 换的是目录项，不是 inode 里的字节。所以哪怕这条路径上的
+        blob 被硬链接到了别的目录（同内容两处），替换也不会改到那边的内容。
+        """
+        part = self.staging_path(upload_id)
+        destination = self.settings.storage_dir / stored_path
+        await asyncio.to_thread(self._commit, part, destination)
+
+    async def link_existing(self, stored_path: str, agent_id: str, file_id: str) -> bool:
+        """把一个已有 blob 硬链接成新文件的落盘路径。
+
+        同一份内容落在两个目录时用它：库里两条记录，磁盘一个 inode。
+        返回 False 表示文件系统不支持硬链接（跨设备、FAT 之类），已退化成复制。
+        """
+        source = self.settings.storage_dir / stored_path
+        target = self.final_path(agent_id, file_id)
+
+        def _run() -> bool:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(source, target)
+                return True
+            except OSError:
+                shutil.copyfile(source, target)
+                return False
+
+        return await asyncio.to_thread(_run)
+
+    async def link_over(self, source_path: str, target_path: str) -> bool:
+        """把 target 的目录项换成指向 source 的硬链接（同样不动 inode 内容）。"""
+        source = self.settings.storage_dir / source_path
+        target = self.settings.storage_dir / target_path
+
+        def _run() -> bool:
+            staging = target.with_name(f"{target.name}.lnk")
+            staging.unlink(missing_ok=True)
+            try:
+                os.link(source, staging)
+            except OSError:
+                shutil.copyfile(source, staging)
+                os.replace(staging, target)
+                return False
+            os.replace(staging, target)
+            return True
+
+        return await asyncio.to_thread(_run)
+
+    async def delete_blob(self, stored_path: str) -> None:
+        path = self.settings.storage_dir / stored_path
+        await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
+
     async def finalize(
         self,
         upload_id: str,
