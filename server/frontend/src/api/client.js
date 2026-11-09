@@ -70,6 +70,5 @@ export const FilesApi = {
 }
 
 export const SystemApi = {
-  stats: () => api.get('/api/v1/system/stats'),
-  audit: (limit = 100) => api.get('/api/v1/system/audit', { params: { limit } })
+  stats: () => api.get('/api/v1/system/stats')
 }

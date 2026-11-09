@@ -1,4 +1,4 @@
-"""指令处理器：list_dir / stat_file / start_upload / cancel_task / ping。
+"""指令处理器：ping / list_dir / stat_file / hash_file / start_upload / cancel_task。
 
 纪律：
 

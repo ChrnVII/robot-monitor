@@ -44,8 +44,7 @@ async def list_agents(ctx: Context) -> dict[str, Any]:
     counts = {
         str(row["agent_id"]): int(row["n"])
         for row in await ctx.db.fetchall(
-            "SELECT agent_id, COUNT(*) AS n FROM files"
-            " WHERE deleted_at IS NULL GROUP BY agent_id"
+            "SELECT agent_id, COUNT(*) AS n FROM files GROUP BY agent_id"
         )
     }
     items = []

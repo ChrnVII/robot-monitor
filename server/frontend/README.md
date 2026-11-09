@@ -23,7 +23,7 @@ npm run build      # 产出 dist/，由 backend 直接托管
 src/
 ├── api/client.js              axios 实例 + 401 广播 + 按 code 取错误文案
 ├── composables/useLiveEvents.js  SSE 单例（断线重连 + 重连后对账钩子）
-├── layout/AppLayout.vue       侧栏 + 顶栏（在线数、磁盘余量、实时连接状态）
+├── layout/AppLayout.vue       侧栏 + 顶栏（磁盘余量、账号菜单）
 ├── stores/auth.js             会话状态
 ├── views/                     Login / Nodes / Browse / Tasks / Files
 └── utils/format.js            字节、时间、任务状态文案

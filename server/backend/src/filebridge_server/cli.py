@@ -229,7 +229,7 @@ async def _dedup(*, apply: bool) -> None:
         freed = 0
         for group in groups:
             rows = await db.fetchall(
-                "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL"
+                "SELECT * FROM files WHERE agent_id = ? AND sha256 = ?"
                 " ORDER BY created_at",
                 (group["agent_id"], group["sha256"]),
             )
@@ -282,7 +282,7 @@ async def _duplicate_groups(db: Database) -> list[Any]:
     """
     return await db.fetchall(
         "SELECT agent_id, sha256, COUNT(*) AS copies, MIN(size) AS size"
-        " FROM files WHERE deleted_at IS NULL"
+        " FROM files"
         " GROUP BY agent_id, sha256 HAVING COUNT(*) > 1"
         " ORDER BY size * (COUNT(*) - 1) DESC"
     )

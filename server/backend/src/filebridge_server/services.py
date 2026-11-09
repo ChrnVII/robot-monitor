@@ -3,11 +3,14 @@
 一次取件的完整时序（进度只由 A 记录，B 不上报进度）：
 
     C: POST /tasks
-    A: 建 task(pending) → stat_file → 校验大小/磁盘 → 建 upload + 预分配 staging
-       → start_upload(agent 立刻 ack，真正传在 B 的后台任务里)
+    A: 建 task → stat_file → 查库里有没有同一份内容（命中就不传）
+       → 未命中：校验磁盘 → 建 upload + 预分配 staging → start_upload
     B: PUT /internal/uploads/{id}/chunks/{n}  × N（A 记 received，进度即真相）
     B: POST /internal/uploads/{id}/complete  {sha256}
-    A: 重算 sha256 → 原子改名 → files 行 → task done → SSE
+    A: 重算 sha256 → 判重/替换/落盘 → files 行 → task done → SSE
+
+落库规则：**路径是身份，内容是存储**。同路径同内容跳过，同路径不同内容替换，
+不同路径同内容硬链接复用。
 
 关键不变量：**任何一步失败都要把 task 和 upload 一起落到终态**，不能留下
 "任务在转圈但 B 早就不传了"的僵尸行。所有失败路径都走 `_fail_upload`。
@@ -267,14 +270,13 @@ class TaskService:
     async def _file_at(self, agent_id: str, rel: str) -> Any | None:
         """这个路径在库里已有的那条（未删除）。老数据 rel_path 可能为空，用名字兜底。"""
         return await self.db.fetchone(
-            "SELECT * FROM files WHERE agent_id = ? AND COALESCE(rel_path, orig_name) = ?"
-            " AND deleted_at IS NULL",
+            "SELECT * FROM files WHERE agent_id = ? AND COALESCE(rel_path, orig_name) = ?",
             (agent_id, rel),
         )
 
     async def _file_with_sha(self, agent_id: str, digest: str) -> Any | None:
         return await self.db.fetchone(
-            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ? AND deleted_at IS NULL"
+            "SELECT * FROM files WHERE agent_id = ? AND sha256 = ?"
             " ORDER BY created_at LIMIT 1",
             (agent_id, digest),
         )
@@ -285,8 +287,7 @@ class TaskService:
         """上传前查一次。返回 ("skipped", 同路径的那条) / ("linked", 同内容的另一条) / None。"""
         # 先比大小：绝大多数文件大小唯一，这一步就把它们挡在"读盘算哈希"之外。
         candidate = await self.db.fetchone(
-            "SELECT 1 AS hit FROM files WHERE agent_id = ? AND size = ?"
-            " AND deleted_at IS NULL LIMIT 1",
+            "SELECT 1 AS hit FROM files WHERE agent_id = ? AND size = ? LIMIT 1",
             (agent_id, total_size),
         )
         if candidate is None:
@@ -342,8 +343,8 @@ class TaskService:
             # 所以硬链接到别处的同内容副本不会被这次替换污染。
             if upload_id is not None:
                 await self.storage.commit_over(upload_id, same["stored_path"])
-            else:
-                await self.storage.link_over(source["stored_path"], same["stored_path"])
+            elif not await self.storage.link_over(source["stored_path"], same["stored_path"]):
+                logger.info("hardlink unavailable, fell back to copy for %s:%s", agent_id, rel)
             await self.db.execute(
                 "UPDATE files SET sha256 = ?, size = ?, created_at = ? WHERE id = ?",
                 (source["sha256"], size, now, same["id"]),
@@ -352,7 +353,8 @@ class TaskService:
             outcome = "replaced"
         else:
             file_id = uuid.uuid4().hex
-            await self.storage.link_existing(source["stored_path"], agent_id, file_id)
+            if not await self.storage.link_existing(source["stored_path"], agent_id, file_id):
+                logger.info("hardlink unavailable, fell back to copy for %s:%s", agent_id, rel)
             stored_path = str(
                 self.storage.final_path(agent_id, file_id).relative_to(self.settings.storage_dir)
             )
@@ -389,10 +391,9 @@ class TaskService:
         transferred: int = 0,
         actor: str = "admin",
     ) -> dict[str, Any]:
-        """把任务落到 deduped：不是失败，也不是"产出了一个新文件"。
+        """同路径、同内容：任务落 deduped——不新增行，也不占新磁盘。
 
-        库里的行一个字都不动——同一份内容只留一条，列表里也就不会冒出两个同名项。
-        `file_id` 指回已存在的那条，方便以后（会话视图）把这次取件也算进同一份文件。
+        `file_id` 指回已有那条，任务页仍然说得清"这份内容对应哪个文件"。
         """
         now = time.time()
         async with self.db.write_transaction() as conn:
@@ -718,7 +719,7 @@ class TaskService:
                 logger.warning("staging for upload %s was not removed", upload["id"])
 
         files = await self.db.fetchall(
-            "SELECT id, stored_path FROM files WHERE agent_id = ? AND deleted_at IS NULL", (agent_id,)
+            "SELECT id, stored_path FROM files WHERE agent_id = ?", (agent_id,)
         )
         removed = 0
         if delete_files:
@@ -1103,17 +1104,17 @@ class TaskService:
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
-        clauses = ["deleted_at IS NULL"]
+        clauses: list[str] = []
         params: list[Any] = []
         if query:
             clauses.append("orig_name LIKE ?")
             params.append(f"%{query}%")
-        where = " AND ".join(clauses)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = await self.db.fetchall(
-            f"SELECT * FROM files WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM files {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
             [*params, limit, offset],
         )
-        total = await self.db.fetchval(f"SELECT COUNT(*) FROM files WHERE {where}", params, default=0)
+        total = await self.db.fetchval(f"SELECT COUNT(*) FROM files {where}", params, default=0)
         return {
             "items": [self._file_view(r) for r in rows],
             "total": int(total),
@@ -1140,12 +1141,11 @@ class TaskService:
         prefix = _clean_prefix(path)
         start = len(prefix) + 2 if prefix else 1
         like = _prefix_like(prefix)
-        scope = "deleted_at IS NULL"
         p = "COALESCE(rel_path, orig_name)"
 
         totals = await self.db.fetchone(
             f"SELECT COUNT(*) AS files, COALESCE(SUM(size), 0) AS size FROM files"
-            f" WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\')",
+            f" WHERE agent_id = ? AND (? = '' OR {p} LIKE ? ESCAPE '\\')",
             (agent_id, prefix, like),
         )
 
@@ -1153,14 +1153,14 @@ class TaskService:
             f"SELECT substr(rest, 1, instr(rest, '/') - 1) AS name,"
             f" COUNT(*) AS files, COALESCE(SUM(size), 0) AS size"
             f" FROM (SELECT substr({p}, ?) AS rest, size FROM files"
-            f"       WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\'))"
+            f"       WHERE agent_id = ? AND (? = '' OR {p} LIKE ? ESCAPE '\\'))"
             f" WHERE instr(rest, '/') > 0 GROUP BY name ORDER BY name",
             (start, agent_id, prefix, like),
         )
 
         rows = await self.db.fetchall(
             f"SELECT id, orig_name, {p} AS path, size, created_at FROM files"
-            f" WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
+            f" WHERE agent_id = ? AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
             f" AND instr(substr({p}, ?), '/') = 0"
             f" ORDER BY orig_name LIMIT ? OFFSET ?",
             (agent_id, prefix, like, start, limit, offset),
@@ -1202,7 +1202,7 @@ class TaskService:
 
         rows = await self.db.fetchall(
             f"SELECT id, orig_name, {p} AS path, stored_path FROM files"
-            f" WHERE agent_id = ? AND deleted_at IS NULL AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
+            f" WHERE agent_id = ? AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
             f" ORDER BY {p}",
             (agent_id, prefix, like),
         )
@@ -1239,7 +1239,7 @@ class TaskService:
         like = _prefix_like(prefix)
         p = "COALESCE(rel_path, orig_name)"
         rows = await self.db.fetchall(
-            f"SELECT id, stored_path FROM files WHERE agent_id = ? AND deleted_at IS NULL"
+            f"SELECT id, stored_path FROM files WHERE agent_id = ?"
             f" AND {p} LIKE ? ESCAPE '\\'",
             (agent_id, like),
         )

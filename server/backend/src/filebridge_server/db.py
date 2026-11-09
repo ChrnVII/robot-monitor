@@ -128,8 +128,7 @@ CREATE TABLE IF NOT EXISTS files (
     sha256      TEXT NOT NULL,
     stored_path TEXT NOT NULL,
     created_at  REAL NOT NULL,
-    -- 旧回收站的标记。删除改成真删之后恒为 NULL，留着只是为了不用重建表；
-    -- 查询里的 `deleted_at IS NULL` 是兜底，不是业务状态。
+    -- 旧回收站的标记，只在启动迁移时用来找出历史垃圾行。新代码不写也不读。
     deleted_at  REAL
 );
 CREATE INDEX IF NOT EXISTS idx_files_created ON files(deleted_at, created_at DESC);

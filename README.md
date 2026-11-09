@@ -9,7 +9,7 @@
         ┌──────────────────── A（公网）────────────────────┐
  C ──── │  FastAPI: /api/*  /api/events(SSE)  /ws/agent   │
 （浏览器）│  Vue 3 静态产物（由 FastAPI 托管）               │
-        │  SQLite + storage/{staging,files,trash}          │
+        │  SQLite + storage/{staging,files}                │
         └───────▲──────────────────────────▲───────────────┘
                 │ ① WSS 控制通道            │ ② HTTPS 分片上传
                 │（B 主动拨出，常驻）        │（B 主动发起）
@@ -110,12 +110,12 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 ### 测试
 
 ```bash
-./dev.sh test      # protocol + agent + backend 全跑（当前 agent 113 + backend 117；软链接相关的用例在非 Linux 开发机自动跳过）
+./dev.sh test      # protocol + agent + backend 全跑（软链接相关的用例在非 Linux 开发机自动跳过）
 ./dev.sh lint
 ```
 
 端到端测试会真的起 uvicorn、真的跑一个 agent、真的分片上传，验证 sha256、
-Range 下载、回收站和 SSE。它比单元测试慢，但这类流程错一步就是线上故障。
+Range 下载、删除和 SSE。它比单元测试慢，但这类流程错一步就是线上故障。
 
 ## 生产部署
 
@@ -159,11 +159,12 @@ Linux 时，软链接逃逸那条用例会 skip。
 
 ```
 C: POST /api/v1/tasks {agent_id, path}
-A: 建 task → stat_file 到 B（10s 超时）→ 磁盘预检 → 建 upload + 预分配 staging
+A: 建 task → stat_file 到 B（10s 超时）→ 库里已有同一份就跳过，不传
+A: 否则 磁盘预检 → 建 upload + 预分配 staging
 A: start_upload ──▶ B 立刻 ack，真正传输在 B 的后台任务里
 B: PUT /internal/uploads/{id}/chunks/{n}  × N   （3 并发，幂等，可重传）
 B: POST /internal/uploads/{id}/complete {sha256}
-A: 重算 sha256 → 原子 rename → files 行 → task done → SSE 推给 C
+A: 重算 sha256 → 判重/替换/落盘 → files 行 → task done → SSE 推给 C
 ```
 
 **进度的唯一真相在 A**：A 知道自己收到第几块，不需要 B 上报进度。B 只在失败时

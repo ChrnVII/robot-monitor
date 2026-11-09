@@ -34,12 +34,8 @@ async def health(ctx: Context) -> dict[str, Any]:
 @router.get("/api/v1/system/stats", dependencies=[Depends(require_session)])
 async def stats(ctx: Context) -> dict[str, Any]:
     free = ctx.storage.free_bytes()
-    total_files = await ctx.db.fetchval(
-        "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL", default=0
-    )
-    used = await ctx.db.fetchval(
-        "SELECT COALESCE(SUM(size), 0) FROM files WHERE deleted_at IS NULL", default=0
-    )
+    total_files = await ctx.db.fetchval("SELECT COUNT(*) FROM files", default=0)
+    used = await ctx.db.fetchval("SELECT COALESCE(SUM(size), 0) FROM files", default=0)
     # 侧栏「节点」上的小红点靠它。放在 stats 里而不是单独一个接口：
     # AppLayout 本来就在轮询 stats，多一个字段比多一次请求便宜。
     pending = await ctx.db.fetchval(

@@ -18,7 +18,6 @@ const agents = ref([])
 const agentNames = ref({})
 
 const treeRef = ref(null)
-const treeKey = ref(0)
 
 // 当前所在目录。agent + path 是这一页唯一的"位置"状态。
 const current = ref({ agent: '', path: '' })
@@ -31,15 +30,12 @@ let searchTimer = null
 
 const searching = computed(() => Boolean(query.value.trim()))
 const segments = computed(() => current.value.path.split('/').filter(Boolean))
-const emptyText = computed(() => '这个目录是空的')
+const emptyText = '这个目录是空的'
 
 // --- 删除与撤销 ---------------------------------------------------------
 //
-// 服务端是真删，没有回收站。反悔的机会只有这里的 8 秒：这段时间里请求**还没发**，
-// 撤销就是"什么都不做"。所以：
-//   - 点删除先只改界面，让行立刻消失；
-//   - 8 秒到了才真的发请求；
-//   - 期间又删了别的、或者切走了页面，前一次立即生效（不做静默丢弃）。
+// 服务端是真删。后悔窗口只有这 8 秒：请求还没发，撤销就是什么都不做。
+// 点删除只改界面，到期才发请求；期间再删或切走，前一次立即生效。
 
 const pending = ref(null)
 const UNDO_MS = 8000
@@ -350,7 +346,6 @@ onUnmounted(() => {
       <aside class="files-tree">
         <el-tree
           v-if="agents.length"
-          :key="treeKey"
           ref="treeRef"
           lazy
           :load="loadNode"

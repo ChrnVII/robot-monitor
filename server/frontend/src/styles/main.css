@@ -597,18 +597,6 @@ a {
 }
 
 /* ==========================================================================
-   分页条
-   ========================================================================== */
-
-.pager {
-  display: flex;
-  justify-content: flex-end;
-  padding: 12px 20px;
-  border-top: 1px solid var(--fb-border);
-  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
-}
-
-/* ==========================================================================
    节点卡片
    ========================================================================== */
 
@@ -1334,17 +1322,6 @@ a {
   opacity: 0.75;
 }
 
-/* 分页条：表格底部的收尾，别让它贴边 */
-.el-pagination {
-  --el-pagination-button-bg-color: #f5f8fd;
-  --el-pagination-hover-color: var(--fb-accent);
-  font-variant-numeric: tabular-nums;
-}
-
-.el-pagination.is-background .el-pager li {
-  border-radius: 7px;
-}
-
 /* ==========================================================================
    组件细节
    ========================================================================== */
@@ -1493,30 +1470,6 @@ a {
   font-size: 13px;
 }
 
-.el-tabs__header {
-  margin-bottom: 0;
-}
-
-.el-tabs__item {
-  font-size: 14px;
-  color: var(--fb-text-muted);
-}
-
-.el-tabs__item.is-active {
-  color: var(--fb-accent);
-  font-weight: 600;
-}
-
-.el-tabs__active-bar {
-  height: 3px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #4a7bf7, #7b5cf5);
-}
-
-.el-tabs__nav-wrap::after {
-  display: none;
-}
-
 .el-checkbox__inner {
   border-radius: 4px;
 }
@@ -1529,18 +1482,6 @@ a {
 .el-loading-mask {
   background-color: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(1px);
-}
-
-/* 面板头里的 tabs 需要更紧凑：它是筛选器，不是页面级导航 */
-.panel-head .el-tabs__item {
-  height: 34px;
-  line-height: 34px;
-  padding: 0 2px;
-  margin-right: 22px;
-}
-
-.panel-head .el-tabs__item:last-child {
-  margin-right: 0;
 }
 
 /* ==========================================================================
