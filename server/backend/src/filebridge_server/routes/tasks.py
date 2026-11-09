@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 from ..deps import Context, require_session
 from ..protocol import ErrorCode
-from ..services import TaskService
 
 router = APIRouter(
     prefix="/api/v1/tasks",
@@ -102,7 +101,3 @@ async def get_task(task_id: str, ctx: Context) -> dict[str, Any]:
 @router.post("/{task_id}/cancel")
 async def cancel_task(task_id: str, ctx: Context) -> dict[str, Any]:
     return await ctx.tasks.cancel_task(task_id)
-
-
-# TaskService 只用于类型提示，避免 linter 说 import 未使用
-__all__ = ["TaskService", "router"]

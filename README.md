@@ -53,13 +53,13 @@ token 校验），自研中间那一层薄服务。
 ## 协议怎么共享（没有共享包）
 
 `protocol.py` 在两个项目里各有一份，内容必须**逐字节相同**。不抽成第三个包，是因为
-它只有 200 行、5 个命令、11 个错误码，而抽出去要付三个具体成本：两个 pyproject 都写
+它只有 200 行、5 个命令、13 个错误码，而抽出去要付三个具体成本：两个 pyproject 都写
 path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三个项目。
 
 复制唯一的风险是漂移，用两道测试兜住（两端都跑）：
 
 1. `test_protocol_copy_is_identical`——逐字节比对两份源码。改一边忘了另一边，立刻红。
-2. `test_golden_frames_match`——两端都读 `contract/protocol-frames.json`，解析与
+2. `test_golden_frame_roundtrip`——两端都读 `contract/protocol-frames.json`，解析与
    序列化结果必须与样例一致。两边都改错但改得不一样，也红。
 
 改协议的顺序：先改 `contract/protocol-frames.json`，再改两份 `protocol.py`，
@@ -80,8 +80,8 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 打开 <http://127.0.0.1:5173>，用 `admin` + 刚才设的密码登录。
 
 **没有手工步骤**：密码不用算哈希、token 不用复制粘贴。凭据都存在该存的地方——
-密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agent.json`
-（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
+密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agents/`，
+一台 A 一个文件（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
 
 之后再启动，参数都可以省：
 

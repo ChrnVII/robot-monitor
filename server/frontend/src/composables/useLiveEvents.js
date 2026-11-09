@@ -20,7 +20,7 @@ function dispatch(payload) {
     try {
       listener(payload)
     } catch (error) {
-      console.error('SSE 订阅回调整理失败', error)
+      console.error('SSE 订阅回调执行失败', error)
     }
   }
 }

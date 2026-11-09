@@ -68,11 +68,16 @@ async def require_session(request: Request) -> str:
 SessionToken = Annotated[str, Depends(require_session)]
 
 
-def bearer_token(request: Request) -> str | None:
-    header = request.headers.get("authorization") or ""
-    if not header.lower().startswith("bearer "):
+def bearer_from_header(header: str | None) -> str | None:
+    """从 `Authorization` 头里取出 Bearer token。HTTP 与 WebSocket 共用这一份解析。"""
+    value = header or ""
+    if not value.lower().startswith("bearer "):
         return None
-    return header[7:].strip() or None
+    return value[7:].strip() or None
+
+
+def bearer_token(request: Request) -> str | None:
+    return bearer_from_header(request.headers.get("authorization"))
 
 
 async def require_agent(request: Request) -> str:

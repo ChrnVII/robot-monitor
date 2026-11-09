@@ -18,6 +18,8 @@
 from __future__ import annotations
 
 import asyncio
+import time
+import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -42,6 +44,16 @@ CREATE TABLE IF NOT EXISTS admin_user (
     updated_at    REAL NOT NULL
 );
 
+-- 单行表：这台 A 自己的身份。设备是通过**地址**找服务器的，而地址恰恰是最会变
+-- 的东西（换域名、换 IP、内网搬到公网）。所以"我还是不是我"必须有一个与地址
+-- 无关的判据，instance_id 就是它：库在，身份就在；换库就等于换了一台 A。
+-- 对外可见（/api/v1/health），因为它不是凭据，只是一张"我是谁"的名片。
+CREATE TABLE IF NOT EXISTS instance (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    instance_id TEXT NOT NULL,
+    created_at  REAL NOT NULL
+);
+
 -- 待批准的设备注册请求。不存明文 token：批准后由 B 来领取时现场签发，
 -- 领一次即作废（status=claimed）。
 CREATE TABLE IF NOT EXISTS enroll_requests (
@@ -57,8 +69,8 @@ CREATE TABLE IF NOT EXISTS enroll_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_enroll_status ON enroll_requests(status, created_at);
 
--- 单用户部署只建一个管理员，密码哈希放配置；agents 表虽然只有一行也保留 id，
--- 因为换机器时 token 要能独立吊销重建，不能把身份写死在代码里。
+-- 每台 B 一行。id 与 name 分开：token 按机器签发/吊销，name 只用于展示，
+-- 重名时由 auth.create_agent 自动加后缀。
 CREATE TABLE IF NOT EXISTS agents (
     id             TEXT PRIMARY KEY,
     name           TEXT NOT NULL UNIQUE,
@@ -156,8 +168,19 @@ class Database:
         await conn.execute("PRAGMA busy_timeout=5000")
         await conn.execute("PRAGMA foreign_keys=ON")
         await conn.executescript(SCHEMA)
+        # instance_id 一次生成、终身不变。用 OR IGNORE 而不是"先查再插"：
+        # 两个进程同时起来抢同一条也只会有一个赢，另一个静默落空。
+        await conn.execute(
+            "INSERT OR IGNORE INTO instance (id, instance_id, created_at) VALUES (1, ?, ?)",
+            (uuid.uuid4().hex, time.time()),
+        )
         await conn.commit()
         self._conn = conn
+
+    async def instance_id(self) -> str:
+        """这台 A 的身份，与地址无关。空库（还没 connect）时返回空串。"""
+        row = await self.fetchone("SELECT instance_id FROM instance WHERE id = 1")
+        return str(row["instance_id"]) if row is not None else ""
 
     async def close(self) -> None:
         if self._conn is not None:

@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from .client import AgentClient
-from .config import ConfigError, load_config
+from .config import AgentConfig, ConfigError, load_config
 from .enroll import EnrollError, ensure_credentials
 from .sandbox import Sandbox, SandboxError
 
@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("收到中断，退出")
 
 
-async def _run(config) -> None:
+async def _run(config: AgentConfig) -> None:
     # 先补齐 server / token / root（必要时向 A 注册），再校验共享目录
     config = await ensure_credentials(config)
     sandbox = Sandbox(config.root)

@@ -22,7 +22,7 @@ from typing import Any
 
 from .errors import AgentCommandError
 from .protocol import AGENT_ALLOWED_COMMANDS, CommandName, ErrorCode
-from .sandbox import SEP, Sandbox, SandboxError
+from .sandbox import SEP, Sandbox
 from .uploader import UploadJob, UploadManager
 
 DEFAULT_LIMIT = 200
@@ -237,5 +237,3 @@ _HANDLERS: dict[CommandName, Callable[[dict[str, Any], HandlerContext], Any]] = 
 assert set(_HANDLERS) == set(AGENT_ALLOWED_COMMANDS), (
     f"handler 与命令白名单不一致：{set(_HANDLERS) ^ set(AGENT_ALLOWED_COMMANDS)}"
 )
-
-__all__ = ["HandlerContext", "SandboxError", "dispatch"]

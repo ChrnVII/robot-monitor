@@ -249,3 +249,71 @@ def test_duplicate_hostname_does_not_steal_existing_node(tmp_path):
 def test_policy_is_persisted_in_settings(tmp_path, policy):
     settings, _app = make_app(tmp_path, enroll_policy=policy)
     assert settings.enroll_policy == policy
+
+
+# --- 轮换被拒的原因 -----------------------------------------------------
+#
+# 设备被 4401 之后会来这条端点自救。三种原因的处置完全不同，所以 code 必须分开：
+#   unknown_agent → 换了一台 A，重新注册
+#   revoked       → 被管理员踢了，别自动重注册（会凭空多出一台节点）
+#   token_mismatch→ 同一台 A 但 token 已被重签，只能人工处理
+
+
+def _token_of(client: TestClient, hostname: str = "lab-01") -> dict:
+    """用 open 策略直接拿一台已登记的节点，跳过人工批准这一步。"""
+    return enroll(client, hostname=hostname).json()
+
+
+def test_rotate_reports_unknown_agent(tmp_path):
+    _settings, app = make_app(tmp_path, enroll_policy="open")
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/enroll", json={"agent_id": "not-a-real-id", "old_token": "fba_nope"}
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unknown_agent"
+
+
+def test_rotate_reports_token_mismatch(tmp_path):
+    """id 在、没被吊销，但 token 对不上 —— 比如被 issue-token 重签过。"""
+    _settings, app = make_app(tmp_path, enroll_policy="open")
+    with TestClient(app) as client:
+        agent = _token_of(client)
+        response = client.post(
+            "/internal/enroll",
+            json={"agent_id": agent["agent_id"], "old_token": "fba_this_is_not_the_one"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "token_mismatch"
+
+
+def test_rotate_reports_revoked(tmp_path):
+    settings, app = make_app(tmp_path, enroll_policy="open")
+    with TestClient(app) as client:
+        agent = _token_of(client)
+
+    asyncio.run(_with_auth(settings, lambda auth: auth.revoke_agent(str(agent["agent_id"]))))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/enroll",
+            json={"agent_id": agent["agent_id"], "old_token": agent["token"]},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "revoked"
+
+
+def test_rotate_still_works_for_a_healthy_node(tmp_path):
+    _settings, app = make_app(tmp_path, enroll_policy="open")
+    with TestClient(app) as client:
+        agent = _token_of(client)
+        response = client.post(
+            "/internal/enroll",
+            json={"agent_id": agent["agent_id"], "old_token": agent["token"]},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["token"].startswith("fba_")

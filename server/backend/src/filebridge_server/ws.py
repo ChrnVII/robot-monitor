@@ -16,12 +16,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from .deps import AppContext
+from .deps import AppContext, bearer_from_header
 from .hub import AgentConnection, AgentMeta
 from .protocol import (
     PROTOCOL_VERSION,
@@ -44,7 +45,9 @@ TOUCH_INTERVAL = 30.0
 async def agent_socket(websocket: WebSocket) -> None:
     ctx: AppContext = websocket.app.state.ctx
 
-    row = await ctx.auth.authenticate_agent(bearer_token_from_ws(websocket))
+    row = await ctx.auth.authenticate_agent(
+        bearer_from_header(websocket.headers.get("authorization"))
+    )
     await websocket.accept()
 
     if row is None:
@@ -165,19 +168,10 @@ async def agent_socket(websocket: WebSocket) -> None:
         await ctx.hub.unregister(conn)
 
 
-def bearer_token_from_ws(websocket: WebSocket) -> str | None:
-    header = websocket.headers.get("authorization") or ""
-    if not header.lower().startswith("bearer "):
-        return None
-    return header[7:].strip() or None
-
-
 def _as_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
 def _json_list(values: list[str]) -> str:
-    import json
-
     return json.dumps(values, ensure_ascii=False)
 

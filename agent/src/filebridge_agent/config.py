@@ -40,6 +40,8 @@ class AgentConfig:
     state_dir: str | None = None
     # 注册后由 A 分配，轮换 token 时要带上
     agent_id: str | None = None
+    # A 的身份，与地址无关。地址变了靠它认出"还是那一台"（见 enroll.adopt_same_server）
+    instance_id: str | None = None
     log_dir: str | None = None
     log_level: str = "INFO"
     open_timeout: float = 10.0

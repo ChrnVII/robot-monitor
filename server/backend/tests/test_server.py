@@ -46,3 +46,38 @@ def test_chunk_size_scales_with_file_size():
     assert small == cfg.chunk_size_small
     assert large == cfg.chunk_size_large
     assert large > small
+
+
+def test_health_exposes_a_stable_instance_id(tmp_path):
+    """设备靠它认人：地址会变，这个不会。"""
+    with make_client(tmp_path) as client:
+        first = client.get("/api/v1/health").json()["instance_id"]
+        second = client.get("/api/v1/health").json()["instance_id"]
+
+    assert first
+    assert first == second
+
+
+def test_instance_id_survives_restart(tmp_path):
+    """重启还是同一个身份 —— 否则"换了地址还是同一台"根本无从判断。
+
+    同一份 data_dir 上再起一次应用，等价于 systemd restart。
+    """
+    with make_client(tmp_path) as client:
+        before = client.get("/api/v1/health").json()["instance_id"]
+
+    with make_client(tmp_path) as client:
+        after = client.get("/api/v1/health").json()["instance_id"]
+
+    assert before == after
+
+
+def test_instance_id_differs_between_installations(tmp_path):
+    """换一台 A 就是另一个身份：库不同，instance_id 就该不同。"""
+    with make_client(tmp_path / "a") as client:
+        first = client.get("/api/v1/health").json()["instance_id"]
+
+    with make_client(tmp_path / "b") as client:
+        second = client.get("/api/v1/health").json()["instance_id"]
+
+    assert first != second

@@ -27,10 +27,8 @@ class CompletePayload(BaseModel):
     sha256: str | None = Field(default=None, max_length=64)
 
 
-@router.put("/{upload_id}/chunks/{index}")
-async def put_chunk(
-    upload_id: str, index: int, request: Request, agent_id: AgentId, ctx: Context
-) -> dict[str, Any]:
+async def _owned_upload(upload_id: str, agent_id: str, ctx: Context) -> Any:
+    """取出 upload 并确认它属于当前 agent。三个端点共用同一套校验。"""
     upload = await ctx.tasks.get_upload(upload_id)
     if upload is None:
         raise HTTPException(
@@ -42,6 +40,14 @@ async def put_chunk(
             status.HTTP_403_FORBIDDEN,
             detail={"code": ErrorCode.FORBIDDEN.value, "message": "这个 upload 不属于当前 agent"},
         )
+    return upload
+
+
+@router.put("/{upload_id}/chunks/{index}")
+async def put_chunk(
+    upload_id: str, index: int, request: Request, agent_id: AgentId, ctx: Context
+) -> dict[str, Any]:
+    upload = await _owned_upload(upload_id, agent_id, ctx)
 
     declared = request.headers.get("content-length")
     if declared is None:
@@ -98,17 +104,7 @@ async def put_chunk(
 
 @router.get("/{upload_id}/status")
 async def upload_status(upload_id: str, agent_id: AgentId, ctx: Context) -> dict[str, Any]:
-    upload = await ctx.tasks.get_upload(upload_id)
-    if upload is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.FILE_NOT_FOUND.value, "message": "upload 不存在或已回收"},
-        )
-    if upload["agent_id"] != agent_id:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail={"code": ErrorCode.FORBIDDEN.value, "message": "这个 upload 不属于当前 agent"},
-        )
+    await _owned_upload(upload_id, agent_id, ctx)
     return await ctx.tasks.upload_status(upload_id)
 
 
@@ -116,15 +112,5 @@ async def upload_status(upload_id: str, agent_id: AgentId, ctx: Context) -> dict
 async def complete(
     upload_id: str, payload: CompletePayload, agent_id: AgentId, ctx: Context
 ) -> dict[str, Any]:
-    upload = await ctx.tasks.get_upload(upload_id)
-    if upload is None:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            detail={"code": ErrorCode.FILE_NOT_FOUND.value, "message": "upload 不存在或已回收"},
-        )
-    if upload["agent_id"] != agent_id:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail={"code": ErrorCode.FORBIDDEN.value, "message": "这个 upload 不属于当前 agent"},
-        )
+    await _owned_upload(upload_id, agent_id, ctx)
     return await ctx.tasks.complete_upload(upload_id, payload.sha256)

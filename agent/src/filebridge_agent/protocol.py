@@ -10,7 +10,7 @@
 
 1. `test_protocol_copy_is_identical` —— 逐字节比对两份源码。它保证"改协议必须
    同时改两边"，不靠人记得。
-2. `test_golden_frames_match` —— 两端都读仓库根的 `contract/protocol-frames.json`，
+2. `test_golden_frame_roundtrip` —— 两端都读仓库根的 `contract/protocol-frames.json`，
    断言自己的解析与序列化结果与样例一致。即使有人把两份都改了，只要改出的形状
    不同，也过不了。
 
@@ -44,7 +44,6 @@ class MessageType(str, Enum):
     COMMAND = "command"      # A -> B：下发指令
     RESULT = "result"        # B -> A：指令结果（成功或失败）
     EVENT = "event"          # 双向：主动通知（心跳、取消、上传失败）
-    STATUS = "status"        # A -> C 侧口：节点上下线
     ACK = "ack"              # A -> B：welcome，携带续传清单
     ERROR = "error"
 

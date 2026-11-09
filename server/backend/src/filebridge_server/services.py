@@ -26,7 +26,7 @@ from typing import Any
 from .auth import AuthService
 from .config import Settings
 from .db import Database
-from .errors import ApiError
+from .errors import ApiError, from_agent_error
 from .events import EventBus
 from .hub import AgentError, Hub
 from .paths import basename_of, normalize_client_path
@@ -123,7 +123,7 @@ class TaskService:
             )
         except AgentError as exc:
             await self._mark_task_failed(task_id, exc.code, exc.message)
-            raise self._api_from_agent(exc) from exc
+            raise from_agent_error(exc) from exc
 
         if stat.get("is_dir"):
             message = "这是目录，只能选择文件"
@@ -186,7 +186,7 @@ class TaskService:
             )
         except AgentError as exc:
             await self._fail_upload(upload_id, exc.code, exc.message)
-            raise self._api_from_agent(exc) from exc
+            raise from_agent_error(exc) from exc
 
         await self.auth.audit(actor, "task.create", target=task_id, detail=f"{agent_id}:{rel}")
         self._publish_task(task_id, extra={"agent_id": agent_id, "filename": filename})
@@ -458,11 +458,10 @@ class TaskService:
         if row is None:
             raise ApiError(404, ErrorCode.FILE_NOT_FOUND, f"没有这个节点：{agent_id}")
 
-        # ① 先吊销：token 立刻失效，且挡住 B 的自助轮换（轮换要求旧 token 仍有效）。
-        #    顺序放在断开之前，否则 B 会在"断开→删行"这个窗口里换到一个新 token。
+        # ① 先吊销，且必须早于断开：否则 B 会在"断开→删行"的窗口里换到新 token。
         await self.auth.revoke_agent(agent_id)
 
-        # ② 再断开：token 只在握手时校验一次，不断开的话现有连接还能继续下传
+        # ② 再断开，否则既有连接还能继续下传。
         conn = self.hub.get(agent_id)
         if conn is not None:
             await conn.shutdown("node removed by admin", code=4401)
@@ -906,12 +905,6 @@ class TaskService:
     # 视图与小工具
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _api_from_agent(error: AgentError) -> ApiError:
-        from .errors import from_agent_error
-
-        return from_agent_error(error)
-
     def _task_view(self, row: Any) -> dict[str, Any]:
         total = row["total_bytes"] or 0
         transferred = row["transferred_bytes"] or 0
@@ -947,10 +940,7 @@ class TaskService:
         }
 
     def _publish_task(self, task_id: str, extra: dict[str, Any] | None = None) -> None:
-        row_task = {"task_id": task_id}
-        if extra:
-            row_task.update(extra)
-        self.bus.publish("task_update", row_task)
+        self.bus.publish("task_update", {"task_id": task_id, **(extra or {})})
 
     def _publish_progress(
         self,

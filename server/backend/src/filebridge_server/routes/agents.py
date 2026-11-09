@@ -11,6 +11,7 @@ A 多存一份就多一份"两边不一致"的可能。10s 超时是硬性的—
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -175,8 +176,6 @@ async def list_dir(agent_id: str, payload: ListDirPayload, ctx: Context) -> dict
 
 
 def _parse_roots(raw: Any) -> list[str]:
-    import json
-
     try:
         value = json.loads(raw or "[]")
     except (TypeError, ValueError):

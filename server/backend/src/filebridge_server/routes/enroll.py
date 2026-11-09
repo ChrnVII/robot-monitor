@@ -28,6 +28,15 @@ logger = logging.getLogger("filebridge.enroll")
 
 router = APIRouter(prefix="/internal/enroll", tags=["设备注册"])
 
+# 轮换被拒的三种原因：code 给设备（决定下一步动作），message 给人（下一步怎么做）。
+# 不进 protocol.ErrorCode —— 那个枚举走 WS 帧、要和 agent 那份逐字节一致；
+# 这份 JSON 只是 HTTP 端点的约定，混在一起会让"改注册流程"变成"改协议"。
+_REJECTION_HINT = {
+    "unknown_agent": "这台 A 没有登记过这个设备：如果是换了一台服务器，需要重新注册",
+    "revoked": "这台设备已被 A 吊销：请到「节点」页重新签发 token",
+    "token_mismatch": "token 与 A 的记录不一致（可能被重新签发过）：请用新的 token 启动",
+}
+
 
 class EnrollRequest(BaseModel):
     hostname: str | None = Field(default=None, max_length=128)
@@ -41,7 +50,7 @@ class EnrollRequest(BaseModel):
 @router.post("")
 async def enroll(payload: EnrollRequest, request: Request, ctx: Context):
     client_ip = request.client.host if request.client else "unknown"
-    if not ctx.limits.enroll.allow(client_ip or "unknown"):
+    if not ctx.limits.enroll.allow(client_ip):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail={"code": "rate_limited", "message": "注册请求过于频繁"},
@@ -50,14 +59,21 @@ async def enroll(payload: EnrollRequest, request: Request, ctx: Context):
     # ① 轮换：凭旧 token 换新的，不需要审批
     if payload.agent_id and payload.old_token:
         row = await ctx.auth.authenticate_agent(payload.old_token)
-        if row is None or row["id"] != payload.agent_id:
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "unauthorized", "message": "旧 token 无效或已吊销，无法自助轮换"},
-            )
-        token = await ctx.auth.rotate_agent_token(str(row["id"]))
-        logger.info("agent %s rotated its token", row["id"])
-        return {"status": "ok", "agent_id": str(row["id"]), "token": token}
+        if row is not None and row["id"] == payload.agent_id:
+            token = await ctx.auth.rotate_agent_token(str(row["id"]))
+            logger.info("agent %s rotated its token", row["id"])
+            return {"status": "ok", "agent_id": str(row["id"]), "token": token}
+
+        # 拒绝也要分清楚为什么。这三句是写给设备看的，不是给人看的：
+        # 设备靠它决定"重新注册"还是"停下来等人"（见 agent 侧 enroll.py）。
+        reason = await ctx.auth.explain_rejected_token(payload.agent_id, payload.old_token)
+        logger.info(
+            "agent %s presented an unusable token (%s) from %s", payload.agent_id, reason, client_ip
+        )
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail={"code": reason, "message": _REJECTION_HINT[reason]},
+        )
 
     policy = ctx.settings.enroll_policy
     agent_count = int(await ctx.db.fetchval("SELECT COUNT(*) FROM agents", default=0) or 0)

@@ -9,8 +9,9 @@
 - **B（agent）**：每台设备一个 token，库里只存 sha256。token 只在签发时
   明文显示一次，之后无法从库里还原。吊销是改一行的 `revoked_at`，立即生效。
 
-token 比较一律走 `hmac.compare_digest`。`==` 会在第一个不同字节处提前返回，
-时序差足以被逐字符还原 token，这是可实际利用的侧信道。
+token 以 sha256 形式入库，校验就是"算哈希 → 按索引查"，库里没有明文可还原。
+用户名比较走 `hmac.compare_digest`：`==` 会在第一个不同字节处提前返回，时序差
+足以被逐字符还原。
 """
 
 from __future__ import annotations
@@ -74,10 +75,6 @@ def new_token(nbytes: int = 32) -> str:
 def hash_token(raw: str) -> str:
     """token 的入库形态。sha256 足以防止库泄露后被直接使用。"""
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def token_matches(raw: str, stored_hash: str) -> bool:
-    return hmac.compare_digest(hash_token(raw), stored_hash)
 
 
 def new_agent_token() -> str:
@@ -376,10 +373,35 @@ class AuthService:
             return None
         if row["revoked_at"] is not None:
             return None
-        # 二次比较：库里命中的是哈希，仍做一次常数时间校验
-        if not token_matches(raw_token, row["token_hash"]):
-            return None
         return row
+
+    async def find_agent(self, agent_id: str) -> aiosqlite.Row | None:
+        return await self.db.fetchone("SELECT * FROM agents WHERE id = ?", (agent_id,))
+
+    async def explain_rejected_token(self, agent_id: str, old_token: str) -> str:
+        """轮换被拒时，说清楚是哪一种拒。
+
+        三种情况对设备的处置完全不同，压成一句"无效"就只能让人去删凭据：
+
+        - `unknown_agent`：这台 A 没有这个 id。要么是另一台 A（换了服务器），
+          要么节点被删了。设备应该重新注册——会进待批准列表。
+        - `revoked`：id 在、被管理员吊销了。设备**不该**自动重新注册，那等于把
+          管理员踢掉的机器又放回来。
+        - `token_mismatch`：id 在、没被吊销，但 token 对不上（被 issue-token 重签
+          过，或库是从别处恢复的）。只能人工处理，设备自己怎么试都没用。
+
+        哈希比较用 compare_digest：这个端点谁都能打，不给它留逐字节的计时旁路。
+        """
+        row = await self.find_agent(agent_id)
+        if row is None:
+            return "unknown_agent"
+        if row["revoked_at"] is not None:
+            return "revoked"
+        if not hmac.compare_digest(str(row["token_hash"]), hash_token(old_token)):
+            return "token_mismatch"
+        # token 其实是对的却没被 authenticate_agent 认出来，只可能是调用方给的
+        # agent_id 与 token 所属的不是同一台。按"不认识"处理，不额外透露信息。
+        return "unknown_agent"
 
     async def revoke_agent(self, agent_id: str) -> bool:
         row = await self.db.fetchone("SELECT id FROM agents WHERE id = ?", (agent_id,))

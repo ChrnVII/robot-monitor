@@ -24,6 +24,10 @@ async def health(ctx: Context) -> dict[str, Any]:
         "storage_ready": storage_ok,
         "auth_configured": await ctx.auth.password_configured(),
         "agents_online": len(ctx.hub.online_ids()),
+        # 设备靠它认人：地址可以换，这个不会。见 db.py 里 instance 表的注释。
+        # 公开在这里是刻意的——它不是凭据，只是让 B 能在"地址变了"时确认
+        # "还是那一台"，从而不必把 token 发给一个还不确定是谁的地址。
+        "instance_id": await ctx.db.instance_id(),
     }
 
 

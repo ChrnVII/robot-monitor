@@ -73,7 +73,9 @@ async function submit() {
       </el-form>
 
       <p class="login-hint">
-        密码哈希由 <span class="mono">filebridge-server hash-password</span> 生成后配置在服务端。
+        管理员密码存放在服务端数据库：首次启动
+        <span class="mono">filebridge-server serve</span> 会引导设置，之后用
+        <span class="mono">filebridge-server passwd</span> 修改。
       </p>
     </div>
   </div>

@@ -63,6 +63,9 @@ class AgentClient:
         self._ws: Any = None
         self._handlers: set[asyncio.Task[None]] = set()
         self._stop = asyncio.Event()
+        # stop() 里那个 close 任务要留住引用：create_task 的返回值只被事件循环弱引用，
+        # 不留住可能还没跑完就被 GC 掉，socket 于是留在半关状态。
+        self._close_task: asyncio.Task[None] | None = None
 
     # --- 生命周期 -------------------------------------------------------
 
@@ -70,7 +73,7 @@ class AgentClient:
         self._stop.set()
         ws = self._ws
         if ws is not None:
-            asyncio.create_task(ws.close())
+            self._close_task = asyncio.create_task(ws.close())
 
     async def run(self) -> None:
         backoff = 1.0
@@ -86,11 +89,6 @@ class AgentClient:
                 if exc.code == 4401:
                     if await self._rotate_token():
                         continue
-                    logger.error(
-                        "token 已被拒绝，且无法自助轮换。\n"
-                        "到 A 上执行 `filebridge-server pending` 看有没有待批准的申请，"
-                        "或者删掉本地凭据后重新启动以重新注册。"
-                    )
                     break
                 logger.warning("控制连接断开：%s", exc)
             except Exception as exc:  # noqa: BLE001 - 任何连接期异常都走重连
@@ -111,16 +109,52 @@ class AgentClient:
         await self.uploads.close()
 
     async def _rotate_token(self) -> bool:
+        """被 4401 之后的自救：换一把新 token，换不到就按原因给一句人话。
+
+        以前这里只有一句"删掉本地凭据"——因为 A 对被拒的三种原因回的是同一个
+        401。现在原因分开了，照抄那句建议反而会害人：token 被吊销时重新注册
+        = 在 A 上凭空多出一台节点。
+        """
         if not self.config.token or not self.config.agent_id:
+            logger.error(
+                "token 被拒绝，本地也没有可轮换的凭据（缺 token 或 agent_id）。\n"
+                "删掉本地凭据后重新启动，让这台机器重新注册。"
+            )
             return False
+
         logger.warning("token 被拒绝，尝试轮换…")
-        token = await rotate(self.config)
-        if token is None:
-            return False
-        self.config.token = token
-        logger.info("token 已轮换，重新连接")
-        await asyncio.sleep(1.0)
-        return True
+        outcome = await rotate(self.config)
+        if outcome.ok:
+            self.config.token = outcome.token or ""
+            logger.info("token 已轮换，重新连接")
+            await asyncio.sleep(1.0)
+            return True
+
+        if outcome.code == "revoked":
+            logger.error(
+                "这台 A 已吊销本机的 token：%s\n"
+                "到 A 的「节点」页给这台机器重新签发，别直接重新注册——那会多出一台节点。",
+                outcome.message,
+            )
+        elif outcome.code == "token_mismatch":
+            logger.error(
+                "token 与 A 的记录对不上：%s\n"
+                "用 `filebridge-server issue-token` 拿到的新 token 启动。",
+                outcome.message,
+            )
+        elif outcome.code == "unknown_agent":
+            logger.error(
+                "这台 A 不认识本机的 agent_id：%s\n"
+                "如果是换了一台 A，用 --server 指向原来那台；确实要换，就删掉本地凭据重新注册。",
+                outcome.message,
+            )
+        else:
+            logger.error(
+                "轮换没有成功（%s）：%s\n稍后重启再试，或到 A 上 `filebridge-server pending` 看看。",
+                outcome.code or "unknown",
+                outcome.message or "没有更多信息",
+            )
+        return False
 
     async def _session(self) -> None:
         headers = {"Authorization": f"Bearer {self.config.token}"}

@@ -33,7 +33,7 @@ def storage(tmp_path):
 
 async def upload_all(storage: Storage, upload_id: str, data: bytes) -> None:
     await storage.create_staging(upload_id, len(data))
-    for index, offset in enumerate(range(0, len(data), CHUNK)):
+    for offset in range(0, len(data), CHUNK):
         await storage.write_chunk(upload_id, offset, data[offset : offset + CHUNK], len(data))
 
 
