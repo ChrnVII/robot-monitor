@@ -677,7 +677,7 @@ class TaskService:
         - **收尾任务**：task 停在 uploading、staging 却没删，就是一块永久占盘的
           孤儿文件——`sweep_idle_uploads` 只清超时的，节点没了它永远不超时。
         - **文件默认保留**：A 的磁盘是这些文件的唯一副本，删节点不等于删数据。
-          要清就走 `delete_files`，而且只进回收站，30 天内还能还原。
+          要清就走 `delete_files`，那是真删——所以默认不删。
         """
         row = await self.db.fetchone("SELECT * FROM agents WHERE id = ?", (agent_id,))
         if row is None:
@@ -718,44 +718,41 @@ class TaskService:
                 logger.warning("staging for upload %s was not removed", upload["id"])
 
         files = await self.db.fetchall(
-            "SELECT id FROM files WHERE agent_id = ? AND deleted_at IS NULL", (agent_id,)
+            "SELECT id, stored_path FROM files WHERE agent_id = ? AND deleted_at IS NULL", (agent_id,)
         )
-        trashed = 0
+        removed = 0
         if delete_files:
             for file_row in files:
                 try:
-                    await self.soft_delete(str(file_row["id"]), actor=actor)
-                except (OSError, StorageError):
-                    # 磁盘上已经不在了：库里仍要落成"已删除"，否则它会永远挂在列表上
-                    await self.db.execute(
-                        "UPDATE files SET deleted_at = ? WHERE id = ?",
-                        (time.time(), file_row["id"]),
-                    )
-                trashed += 1
+                    await self.storage.delete_blob(file_row["stored_path"])
+                except OSError:
+                    logger.warning("blob for file %s was not removed", file_row["id"])
+                await self.db.execute("DELETE FROM files WHERE id = ?", (file_row["id"],))
+                removed += 1
 
         await self.db.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
         await self.auth.audit(
             actor,
             "agent.delete",
             target=agent_id,
-            detail=f"{row['name']} tasks={len(running)} files={len(files)} trashed={trashed}",
+            detail=f"{row['name']} tasks={len(running)} files={len(files)} removed={removed}",
         )
         self.bus.publish("agent_removed", {"agent_id": agent_id, "name": row["name"]})
         logger.info(
-            "agent %s (%s) removed: %d task(s) canceled, %d file(s) kept, %d trashed",
+            "agent %s (%s) removed: %d task(s) canceled, %d file(s) kept, %d removed",
             agent_id,
             row["name"],
             len(running),
-            len(files) - trashed,
-            trashed,
+            len(files) - removed,
+            removed,
         )
         return {
             "ok": True,
             "agent_id": agent_id,
             "name": str(row["name"]),
             "tasks_canceled": len(running),
-            "files_kept": len(files) - trashed,
-            "files_trashed": trashed,
+            "files_kept": len(files) - removed,
+            "files_removed": removed,
         }
 
     # ------------------------------------------------------------------
@@ -1103,11 +1100,10 @@ class TaskService:
         self,
         *,
         query: str | None = None,
-        deleted: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
-        clauses = ["deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"]
+        clauses = ["deleted_at IS NULL"]
         params: list[Any] = []
         if query:
             clauses.append("orig_name LIKE ?")
@@ -1138,14 +1134,13 @@ class TaskService:
         *,
         agent_id: str,
         path: str = "",
-        deleted: bool = False,
         limit: int = 500,
         offset: int = 0,
     ) -> dict[str, Any]:
         prefix = _clean_prefix(path)
         start = len(prefix) + 2 if prefix else 1
         like = _prefix_like(prefix)
-        scope = "deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL"
+        scope = "deleted_at IS NULL"
         p = "COALESCE(rel_path, orig_name)"
 
         totals = await self.db.fetchone(
@@ -1164,7 +1159,7 @@ class TaskService:
         )
 
         rows = await self.db.fetchall(
-            f"SELECT id, orig_name, {p} AS path, size, created_at, deleted_at FROM files"
+            f"SELECT id, orig_name, {p} AS path, size, created_at FROM files"
             f" WHERE agent_id = ? AND {scope} AND (? = '' OR {p} LIKE ? ESCAPE '\\')"
             f" AND instr(substr({p}, ?), '/') = 0"
             f" ORDER BY orig_name LIMIT ? OFFSET ?",
@@ -1174,7 +1169,6 @@ class TaskService:
         return {
             "agent_id": agent_id,
             "path": prefix,
-            "deleted": deleted,
             "dirs": [
                 {
                     "name": row["name"],
@@ -1191,7 +1185,6 @@ class TaskService:
                     "path": row["path"],
                     "size": int(row["size"]),
                     "created_at": row["created_at"],
-                    "deleted_at": row["deleted_at"],
                 }
                 for row in rows
             ],
@@ -1238,6 +1231,7 @@ class TaskService:
         return target, f"{label}.zip"
 
     async def delete_tree(self, *, agent_id: str, path: str, actor: str = "admin") -> dict[str, int]:
+        """删掉一个目录下的所有文件。真删，和单文件删除同一套语义。"""
         prefix = _clean_prefix(path)
         if not prefix:
             raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, "整库删除请用节点管理，不要从这里下手")
@@ -1245,23 +1239,20 @@ class TaskService:
         like = _prefix_like(prefix)
         p = "COALESCE(rel_path, orig_name)"
         rows = await self.db.fetchall(
-            f"SELECT id FROM files WHERE agent_id = ? AND deleted_at IS NULL"
+            f"SELECT id, stored_path FROM files WHERE agent_id = ? AND deleted_at IS NULL"
             f" AND {p} LIKE ? ESCAPE '\\'",
             (agent_id, like),
         )
         if not rows:
             return {"deleted": 0}
 
-        ids = [row["id"] for row in rows]
-        for file_id in ids:
-            await self.storage.move_to_trash(agent_id, file_id)
+        ids = [str(row["id"]) for row in rows]
+        for row in rows:
+            await self.storage.delete_blob(row["stored_path"])
 
-        now = time.time()
         for chunk in _chunks(ids, 400):
             placeholders = ",".join("?" * len(chunk))
-            await self.db.execute(
-                f"UPDATE files SET deleted_at = ? WHERE id IN ({placeholders})", [now, *chunk]
-            )
+            await self.db.execute(f"DELETE FROM files WHERE id IN ({placeholders})", chunk)
 
         await self.auth.audit(
             actor, "file.delete_tree", target=agent_id, detail=f"{prefix} · {len(ids)} 个文件"
@@ -1296,49 +1287,38 @@ class TaskService:
         return await asyncio.to_thread(_scan)
 
     async def soft_delete(self, file_id: str, *, actor: str = "admin") -> None:
-        row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))
-        if row is None or row["deleted_at"] is not None:
-            raise ApiError(404, ErrorCode.FILE_NOT_FOUND, "文件不存在或已在回收站")
-        await self.storage.move_to_trash(row["agent_id"], file_id)
-        await self.db.execute(
-            "UPDATE files SET deleted_at = ? WHERE id = ?", (time.time(), file_id)
-        )
-        await self.auth.audit(actor, "file.delete", target=file_id, detail=row["orig_name"])
-        self.bus.publish("file_removed", {"file_id": file_id})
+        """删除一个文件。**真删**：行和 blob 一起消失，没有第二次机会。
 
-    async def restore(self, file_id: str, *, actor: str = "admin") -> None:
-        row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))
-        if row is None or row["deleted_at"] is None:
-            raise ApiError(404, ErrorCode.FILE_NOT_FOUND, "回收站里没有这个文件")
-        await self.storage.restore_from_trash(row["agent_id"], file_id)
-        await self.db.execute("UPDATE files SET deleted_at = NULL WHERE id = ?", (file_id,))
-        await self.auth.audit(actor, "file.restore", target=file_id, detail=row["orig_name"])
-        self.bus.publish("file_restored", {"file_id": file_id})
-
-    async def purge(self, file_id: str, *, actor: str = "admin") -> None:
+        想反悔只有前端那 8 秒的撤销窗口——它靠的是"还没发请求"，不是服务端
+        先存着。所以这里不需要 deleted_at，也不需要 trash 目录。
+        """
         row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))
         if row is None:
             raise ApiError(404, ErrorCode.FILE_NOT_FOUND, "文件不存在")
-        if row["deleted_at"] is None:
-            raise ApiError(409, ErrorCode.INVALID_ARGUMENTS, "只能彻底删除回收站里的文件")
-        await self.storage.purge(file_id)
+        await self.storage.delete_blob(row["stored_path"])
         await self.db.execute("DELETE FROM files WHERE id = ?", (file_id,))
-        await self.auth.audit(actor, "file.purge", target=file_id, detail=row["orig_name"])
+        await self.auth.audit(actor, "file.delete", target=file_id, detail=row["orig_name"])
+        self.bus.publish("file_removed", {"file_id": file_id})
 
-    async def purge_expired_trash(self) -> int:
-        cutoff = time.time() - self.settings.trash_retention_days * 86400
-        rows = await self.db.fetchall(
-            "SELECT id FROM files WHERE deleted_at IS NOT NULL AND deleted_at < ?", (cutoff,)
-        )
+    async def purge_legacy_trash(self) -> int:
+        """清空历史回收站。一次性：升级到"删除即真删"之后用不上了。
+
+        这些文件本来就是用户主动删的，B 上还有原件，所以直接清掉而不是还原——
+        还原等于把用户已经做出的决定撤销掉，还得再删一次。
+        """
+        rows = await self.db.fetchall("SELECT id FROM files WHERE deleted_at IS NOT NULL")
         for row in rows:
-            await self.purge(row["id"], actor="system")
+            await self.storage.purge(str(row["id"]))
+        if rows:
+            await self.db.execute("DELETE FROM files WHERE deleted_at IS NOT NULL")
+            logger.info("purged %d file(s) left in the legacy trash", len(rows))
         return len(rows)
 
     async def storage_path_for(self, file_id: str) -> tuple[Any, Any]:
         row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))
-        if row is None or row["deleted_at"] is not None:
+        if row is None:
             raise ApiError(404, ErrorCode.FILE_NOT_FOUND, "文件不存在")
-        return row, self.storage.final_path(row["agent_id"], file_id)
+        return row, self.settings.storage_dir / str(row["stored_path"])
 
     # ------------------------------------------------------------------
     # 视图与小工具
@@ -1375,7 +1355,6 @@ class TaskService:
             "size": row["size"],
             "sha256": row["sha256"],
             "created_at": row["created_at"],
-            "deleted_at": row["deleted_at"],
         }
 
     def _publish_task(self, task_id: str, extra: dict[str, Any] | None = None) -> None:

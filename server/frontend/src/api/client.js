@@ -38,7 +38,7 @@ export const AuthApi = {
 export const AgentsApi = {
   list: () => api.get('/api/v1/agents'),
   listDir: (agentId, payload) => api.post(`/api/v1/agents/${agentId}/list`, payload),
-  // deleteFiles=true 时把该节点的文件一并移入回收站；默认只注销节点、保留文件
+  // deleteFiles=true 时把该节点的文件一并删掉（真删）；默认只注销节点、保留文件
   remove: (agentId, { deleteFiles = false } = {}) =>
     api.delete(`/api/v1/agents/${agentId}`, { params: { delete_files: deleteFiles } }),
   pending: () => api.get('/api/v1/agents/pending'),
@@ -66,9 +66,7 @@ export const FilesApi = {
     `/api/v1/files/archive?agent_id=${encodeURIComponent(agentId)}&path=${encodeURIComponent(path)}`,
   removeTree: (agentId, path) => api.delete('/api/v1/files/tree', { params: { agent_id: agentId, path } }),
   downloadUrl: (fileId) => `/api/v1/files/${fileId}/download`,
-  remove: (fileId) => api.delete(`/api/v1/files/${fileId}`),
-  restore: (fileId) => api.post(`/api/v1/files/${fileId}/restore`),
-  purge: (fileId) => api.delete(`/api/v1/files/${fileId}/purge`)
+  remove: (fileId) => api.delete(`/api/v1/files/${fileId}`)
 }
 
 export const SystemApi = {

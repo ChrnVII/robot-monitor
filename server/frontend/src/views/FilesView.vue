@@ -1,6 +1,6 @@
 <script setup>
-import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { AgentsApi, FilesApi, errorMessage } from '../api/client'
 import { dirOf, formatBytes, formatTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
@@ -10,7 +10,6 @@ defineOptions({ name: 'FilesView' })
 
 const { on } = useLiveEvents()
 
-const tab = ref('library')
 const query = ref('')
 const loading = ref(false)
 
@@ -31,12 +30,45 @@ const resultTotal = ref(0)
 let searchTimer = null
 
 const searching = computed(() => Boolean(query.value.trim()))
-const deleted = computed(() => tab.value === 'trash')
 const segments = computed(() => current.value.path.split('/').filter(Boolean))
-const emptyText = computed(() => {
-  if (!current.value.agent) return '还没有接入任何节点'
-  return deleted.value ? '这个目录没有已删除的文件' : '这个目录是空的'
-})
+const emptyText = computed(() => '这个目录是空的')
+
+// --- 删除与撤销 ---------------------------------------------------------
+//
+// 服务端是真删，没有回收站。反悔的机会只有这里的 8 秒：这段时间里请求**还没发**，
+// 撤销就是"什么都不做"。所以：
+//   - 点删除先只改界面，让行立刻消失；
+//   - 8 秒到了才真的发请求；
+//   - 期间又删了别的、或者切走了页面，前一次立即生效（不做静默丢弃）。
+
+const pending = ref(null)
+const UNDO_MS = 8000
+
+function scheduleDelete(label, commit) {
+  flushPending()
+  const timer = setTimeout(() => {
+    pending.value = null
+    commit()
+  }, UNDO_MS)
+  pending.value = { label, commit, timer }
+}
+
+function flushPending() {
+  const job = pending.value
+  if (!job) return
+  clearTimeout(job.timer)
+  pending.value = null
+  job.commit()
+}
+
+function undoDelete() {
+  const job = pending.value
+  if (!job) return
+  clearTimeout(job.timer)
+  pending.value = null
+  loadListing({ silent: true })
+  ElMessage.success('已撤销')
+}
 
 function agentName(id) {
   if (!id) return '—'
@@ -82,7 +114,7 @@ async function loadNode(node, resolve) {
 
   const { agent, path } = node.data
   try {
-    const { data } = await FilesApi.browse({ agent_id: agent, path, deleted: deleted.value })
+    const { data } = await FilesApi.browse({ agent_id: agent, path })
     resolve(
       data.dirs.map((dir) => ({
         key: `${agent}:${dir.path}`,
@@ -107,8 +139,7 @@ async function loadListing({ silent = false } = {}) {
   try {
     const { data } = await FilesApi.browse({
       agent_id: current.value.agent,
-      path: current.value.path,
-      deleted: deleted.value
+      path: current.value.path
     })
     listing.value = data
   } catch (error) {
@@ -140,72 +171,39 @@ function downloadDir(path) {
   window.location.href = FilesApi.archiveUrl(current.value.agent, path)
 }
 
-async function removeDir(dir) {
-  try {
-    await ElMessageBox.confirm(
-      `删除「${dir.name}」？其中 ${dir.files} 个文件会移入回收站，30 天内可以还原。`,
-      '删除目录',
-      { confirmButtonText: '移入回收站', cancelButtonText: '取消', type: 'warning' }
-    )
-  } catch {
-    return
-  }
-  try {
-    const { data } = await FilesApi.removeTree(current.value.agent, dir.path)
-    ElMessage.success(`已移入回收站：${data.deleted} 个文件`)
-    loadListing()
-    treeKey.value += 1
-  } catch (error) {
-    ElMessage.error(errorMessage(error))
-  }
+function removeFile(file) {
+  // 先从界面拿掉：撤销时整页重载就能回来，不需要自己维护"影子行"
+  const index = listing.value.files.findIndex((item) => item.id === file.id)
+  if (index >= 0) listing.value.files.splice(index, 1)
+  listing.value.total_files = Math.max(0, listing.value.total_files - 1)
+  listing.value.total_size = Math.max(0, listing.value.total_size - file.size)
+
+  scheduleDelete(`已删除「${file.name}」`, async () => {
+    try {
+      await FilesApi.remove(file.id)
+      loadListing({ silent: true })
+    } catch (error) {
+      ElMessage.error(errorMessage(error))
+      loadListing()
+    }
+  })
 }
 
-async function removeFile(file) {
-  try {
-    await ElMessageBox.confirm(`把「${file.name}」移入回收站？`, '删除文件', {
-      confirmButtonText: '移入回收站',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-  } catch {
-    return
-  }
-  try {
-    await FilesApi.remove(file.id)
-    ElMessage.success('已移入回收站')
-    loadListing()
-  } catch (error) {
-    ElMessage.error(errorMessage(error))
-  }
-}
+function removeDir(dir) {
+  const index = listing.value.dirs.findIndex((item) => item.path === dir.path)
+  if (index >= 0) listing.value.dirs.splice(index, 1)
+  listing.value.total_files = Math.max(0, listing.value.total_files - dir.files)
+  listing.value.total_size = Math.max(0, listing.value.total_size - dir.size)
 
-async function restore(file) {
-  try {
-    await FilesApi.restore(file.id)
-    ElMessage.success('已还原')
-    loadListing()
-  } catch (error) {
-    ElMessage.error(errorMessage(error))
-  }
-}
-
-async function purge(file) {
-  try {
-    await ElMessageBox.confirm(
-      `彻底删除「${file.name}」？磁盘上的文件会被删除，无法恢复。`,
-      '彻底删除',
-      { confirmButtonText: '彻底删除', cancelButtonText: '取消', type: 'error' }
-    )
-  } catch {
-    return
-  }
-  try {
-    await FilesApi.purge(file.id)
-    ElMessage.success('已彻底删除')
-    loadListing()
-  } catch (error) {
-    ElMessage.error(errorMessage(error))
-  }
+  scheduleDelete(`已删除「${dir.name}」（${dir.files} 个文件）`, async () => {
+    try {
+      await FilesApi.removeTree(current.value.agent, dir.path)
+      loadListing({ silent: true })
+    } catch (error) {
+      ElMessage.error(errorMessage(error))
+      loadListing()
+    }
+  })
 }
 
 // --- 搜索 ---------------------------------------------------------------
@@ -219,11 +217,7 @@ function search() {
   searchTimer = setTimeout(async () => {
     loading.value = true
     try {
-      const { data } = await FilesApi.list({
-        q: query.value.trim(),
-        deleted: deleted.value,
-        limit: 100
-      })
+      const { data } = await FilesApi.list({ q: query.value.trim(), limit: 100 })
       results.value = data.items || []
       resultTotal.value = data.total || 0
     } catch (error) {
@@ -245,7 +239,9 @@ function reveal(item) {
 function startWatching() {
   off?.()
   off = on((event) => {
-    if (event.type === 'files_changed') {
+    // 有未提交的删除时不刷新：否则刚被乐观移除的行会被服务器数据带回来
+    if (pending.value) return
+    if (event.type === 'files_changed' || event.type === 'file_removed') {
       loadListing({ silent: true })
       if (searching.value) search()
     }
@@ -259,12 +255,6 @@ function stopWatching() {
 
 let off = null
 let firstActivate = true
-
-watch(tab, () => {
-  results.value = []
-  treeKey.value += 1
-  loadListing()
-})
 
 onMounted(() => {
   loadAgents()
@@ -284,25 +274,24 @@ onActivated(() => {
 onDeactivated(() => {
   stopWatching()
   clearTimeout(searchTimer)
+  // 切走了就把还没到期的删除执行掉：宁可删掉，也不要悄悄什么都没做
+  flushPending()
 })
 
 onUnmounted(() => {
   stopWatching()
   clearTimeout(searchTimer)
+  flushPending()
 })
 </script>
 
 <template>
   <div class="panel files-panel">
     <div class="panel-head">
-      <el-tabs v-model="tab" class="panel-tabs">
-        <el-tab-pane label="文件库" name="library" />
-        <el-tab-pane label="回收站" name="trash" />
-      </el-tabs>
-
+      <h2>文件库</h2>
       <el-input
         v-model="query"
-        placeholder="搜索文件名或路径"
+        placeholder="搜索文件名"
         clearable
         style="max-width: 280px"
         @input="search"
@@ -316,7 +305,7 @@ onUnmounted(() => {
 
     <!-- 搜索态：跨目录平铺，点一条跳回它所在的目录 -->
     <div v-if="searching" class="search-pane">
-      <el-table :data="results" v-loading="loading" style="width: 100%" :empty-text="deleted ? '回收站里没有匹配的文件' : '没有匹配的文件'">
+      <el-table :data="results" v-loading="loading" style="width: 100%" empty-text="没有匹配的文件">
         <el-table-column label="文件" min-width="300">
           <template #default="{ row }">
             <div class="file-cell" :title="row.rel_path || row.name">
@@ -348,6 +337,13 @@ onUnmounted(() => {
       <p v-if="resultTotal > results.length" class="muted" style="padding: 8px 20px 14px">
         共 {{ resultTotal }} 条，只显示前 {{ results.length }} 条。加个更具体的关键词试试。
       </p>
+    </div>
+
+    <!-- 一台节点都没有时，不要把"空目录"和"没有节点"混在一起说 -->
+    <div v-else-if="!agents.length" class="empty-folder files-empty">
+      <el-icon><FolderOpened /></el-icon>
+      <p>还没有接入任何节点</p>
+      <span>在「节点」页等待 B 端 agent 上线并批准接入，这里就会出现它的文件。</span>
     </div>
 
     <div v-else class="files-body">
@@ -404,8 +400,8 @@ onUnmounted(() => {
             <span class="row-name">{{ dir.name }}</span>
             <span class="row-meta">{{ dir.files }} 个文件 · {{ formatBytes(dir.size) }}</span>
             <span class="row-actions">
-              <a v-if="!deleted" class="link-btn" @click.stop="downloadDir(dir.path)">打包下载</a>
-              <a v-if="!deleted" class="danger-link" @click.stop="removeDir(dir)">删除</a>
+              <a class="link-btn" @click.stop="downloadDir(dir.path)">打包下载</a>
+              <a class="danger-link" @click.stop="removeDir(dir)">删除</a>
             </span>
           </div>
         </div>
@@ -415,16 +411,10 @@ onUnmounted(() => {
             <span class="type-tile">{{ extOf(file.name) }}</span>
             <span class="row-name" :title="file.path">{{ file.name }}</span>
             <span class="row-size">{{ formatBytes(file.size) }}</span>
-            <span class="row-time">{{ formatTime(deleted ? file.deleted_at : file.created_at) }}</span>
+            <span class="row-time">{{ formatTime(file.created_at) }}</span>
             <span class="row-actions">
-              <template v-if="!deleted">
-                <a :href="FilesApi.downloadUrl(file.id)" class="link-btn">下载</a>
-                <a class="danger-link" @click="removeFile(file)">删除</a>
-              </template>
-              <template v-else>
-                <a class="link-btn" @click="restore(file)">还原</a>
-                <a class="danger-link" @click="purge(file)">彻底删除</a>
-              </template>
+              <a :href="FilesApi.downloadUrl(file.id)" class="link-btn">下载</a>
+              <a class="danger-link" @click="removeFile(file)">删除</a>
             </span>
           </div>
         </div>
@@ -439,5 +429,13 @@ onUnmounted(() => {
         </div>
       </section>
     </div>
+
+    <!-- 撤销条：8 秒后请求才真正发出 -->
+    <transition name="el-fade-in">
+      <div v-if="pending" class="undo-bar">
+        <span>{{ pending.label }}</span>
+        <a @click="undoDelete">撤销</a>
+      </div>
+    </transition>
   </div>
 </template>

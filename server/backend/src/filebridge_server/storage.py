@@ -229,25 +229,10 @@ class Storage:
             os.fsync(handle.fileno())
         os.replace(part, destination)
 
-    # --- 回收站 ---------------------------------------------------------
-
-    async def move_to_trash(self, agent_id: str, file_id: str) -> Path:
-        source = self.final_path(agent_id, file_id)
-        target = self.trash_path(file_id)
-        await asyncio.to_thread(self._move, source, target)
-        return target
-
-    def _move(self, source: Path, target: Path) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, target)
-
-    async def restore_from_trash(self, agent_id: str, file_id: str) -> Path:
-        source = self.trash_path(file_id)
-        target = self.final_path(agent_id, file_id)
-        await asyncio.to_thread(self._move, source, target)
-        return target
+    # --- 旧回收站（只剩清空） ------------------------------------------
 
     async def purge(self, file_id: str) -> None:
+        """删掉旧回收站里的 blob。只在启动迁移时用一次。"""
         path = self.trash_path(file_id)
         await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 

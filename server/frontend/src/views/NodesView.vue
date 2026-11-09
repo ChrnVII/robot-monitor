@@ -78,7 +78,7 @@ async function confirmDelete() {
 function deleteSummary(data) {
   const parts = [`已删除节点「${data.name}」`]
   if (data.tasks_canceled) parts.push(`取消 ${data.tasks_canceled} 个任务`)
-  if (data.files_trashed) parts.push(`${data.files_trashed} 个文件移入回收站`)
+  if (data.files_removed) parts.push(`${data.files_removed} 个文件已从文件库删除`)
   else if (data.files_kept) parts.push(`${data.files_kept} 个文件仍保留在文件库`)
   return parts.join('，')
 }
@@ -315,10 +315,11 @@ filebridge-server issue-token --name b-office</pre>
 
         <template v-if="deleteTarget.files">
           <el-checkbox v-model="deleteFiles">
-            同时把它的 {{ deleteTarget.files }} 个文件移入回收站
+            同时从文件库删除它的 {{ deleteTarget.files }} 个文件
           </el-checkbox>
           <p class="muted" style="margin: 8px 0 0; font-size: 13px">
-            不勾选则文件留在文件库（推荐）。勾选也只是进回收站，30 天内可还原。
+            不勾选则文件留在文件库（推荐）。勾选会连文件一起删掉，无法恢复；
+            B 上的原件不受影响，需要时重新取件即可。
           </p>
         </template>
         <p v-else class="muted" style="margin: 0">这个节点还没有取过文件，删除不会影响文件库。</p>

@@ -120,20 +120,16 @@ async def test_empty_file_hashes_to_empty_digest(storage):
     assert storage.final_path("agent1", "file4").stat().st_size == 0
 
 
-async def test_trash_roundtrip(storage):
+async def test_delete_blob_removes_the_file(storage):
+    """删除是真删：blob 不留在任何地方，重复删也不报错。"""
     await upload_all(storage, "up8", PAYLOAD)
     await storage.finalize("up8", "agent1", "file5")
+    relative = str(storage.final_path("agent1", "file5").relative_to(storage.settings.storage_dir))
 
-    trashed = await storage.move_to_trash("agent1", "file5")
-    assert trashed.exists()
+    await storage.delete_blob(relative)
+
     assert not storage.final_path("agent1", "file5").exists()
-
-    restored = await storage.restore_from_trash("agent1", "file5")
-    assert restored.exists()
-
-    await storage.move_to_trash("agent1", "file5")
-    await storage.purge("file5")
-    assert not trashed.exists()
+    await storage.delete_blob(relative)  # 幂等：已经没了也不该抛
 
 
 async def test_orphan_staging_is_swept(storage):

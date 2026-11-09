@@ -37,9 +37,6 @@ async def stats(ctx: Context) -> dict[str, Any]:
     total_files = await ctx.db.fetchval(
         "SELECT COUNT(*) FROM files WHERE deleted_at IS NULL", default=0
     )
-    trashed = await ctx.db.fetchval(
-        "SELECT COUNT(*) FROM files WHERE deleted_at IS NOT NULL", default=0
-    )
     used = await ctx.db.fetchval(
         "SELECT COALESCE(SUM(size), 0) FROM files WHERE deleted_at IS NULL", default=0
     )
@@ -53,7 +50,6 @@ async def stats(ctx: Context) -> dict[str, Any]:
         "protocol": PROTOCOL_VERSION,
         "disk_free_bytes": free,
         "files": int(total_files),
-        "trashed": int(trashed),
         "library_bytes": int(used),
         "agents_online": len(ctx.hub.online_ids()),
         "pending_enrollments": int(pending),

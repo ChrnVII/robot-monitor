@@ -931,7 +931,8 @@ a {
 .files-panel {
   display: flex;
   flex-direction: column;
-  min-height: 460px;
+  /* 填满可视区：文件少的时候页面不该半截白 */
+  min-height: calc(100vh - 168px);
 }
 
 .files-body {
@@ -1154,8 +1155,47 @@ a {
   font-size: 13px;
 }
 
+.files-empty {
+  min-height: 420px;
+}
+
+.files-empty span {
+  max-width: 380px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--fb-text-faint);
+}
+
 .search-pane {
   padding-bottom: 6px;
+}
+
+/* 删除后的撤销条：8 秒内请求还没发，这一条是唯一的后悔入口 */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 2100;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #1f2733;
+  color: #f2f5fa;
+  font-size: 13px;
+  box-shadow: 0 16px 40px -18px rgba(15, 23, 42, 0.55);
+}
+
+.undo-bar a {
+  color: #8fb7ff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.undo-bar a:hover {
+  color: #c3d8ff;
 }
 
 @media (max-width: 1080px) {

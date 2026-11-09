@@ -40,7 +40,7 @@ def test_link_over_refuses_missing_file(tmp_path):
     assert _link_over(base, "only", "gone") is False
 
 
-async def test_duplicate_groups_ignores_trash_and_orders_by_wasted_space(tmp_path):
+async def test_duplicate_groups_orders_by_wasted_space(tmp_path):
     settings = Settings(data_dir=tmp_path / "data", storage_dir=tmp_path / "storage")
     settings.ensure_dirs()
 
@@ -50,24 +50,22 @@ async def test_duplicate_groups_ignores_trash_and_orders_by_wasted_space(tmp_pat
         now = time.time()
         rows = [
             # 两份 400 字节的重复 + 一份 4 字节的重复 + 一条孤立的
-            ("f1", "a" * 64, 400, None),
-            ("f2", "a" * 64, 400, None),
-            ("f3", "b" * 64, 4, None),
-            ("f4", "b" * 64, 4, None),
-            # 进了回收站的那条不该参与“可释放空间”的计算
-            ("f5", "c" * 64, 999, now),
-            ("f6", "c" * 64, 999, None),
-            ("f7", "d" * 64, 7, None),
+            ("f1", "a" * 64, 400),
+            ("f2", "a" * 64, 400),
+            ("f3", "b" * 64, 4),
+            ("f4", "b" * 64, 4),
+            ("f5", "c" * 64, 999),
         ]
-        for file_id, digest, size, deleted_at in rows:
+        for file_id, digest, size in rows:
             await db.execute(
                 "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256,"
-                " stored_path, created_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)",
-                (file_id, "ag", f"{file_id}.bin", f"{file_id}.bin", size, digest, file_id, now, deleted_at),
+                " stored_path, created_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,NULL)",
+                (file_id, "ag", f"{file_id}.bin", f"{file_id}.bin", size, digest, file_id, now),
             )
 
         groups = await _duplicate_groups(db)
 
+        # 能腾出的空间越大越靠前
         assert [(group["sha256"], group["copies"]) for group in groups] == [
             ("a" * 64, 2),
             ("b" * 64, 2),

@@ -6,7 +6,7 @@
 - 分片 PUT 的 Content-Length 校验与偏移写入
 - 服务端重算 sha256 并原子落盘
 - 任务状态机走到 done
-- Range 下载、中文文件名、回收站
+- Range 下载、中文文件名、删除
 
 运行在独立线程里，所以它比单元测试慢（每次约 1–2 秒），但这类流程错一步
 就是线上故障，值得。
@@ -255,24 +255,21 @@ def test_missing_file_reports_file_not_found(stack):
     assert response.json()["code"] == "file_not_found"
 
 
-def test_trash_restore_and_purge(stack):
+def test_delete_file_removes_it_for_good(stack):
+    """删除是真删：行没了，blob 也没了。"""
     (stack.share / "keep.txt").write_text("hello", encoding="utf-8")
     task = create_task(stack, "keep.txt")
     assert wait_task(stack, task["id"])["status"] == "done"
 
     file_id = stack.http.get("/api/v1/files").json()["items"][0]["id"]
+    blob = next(path for path in stack.settings.files_dir.rglob("*") if path.is_file())
 
     assert stack.http.delete(f"/api/v1/files/{file_id}").status_code == 200
     assert stack.http.get("/api/v1/files").json()["total"] == 0
-    trashed = stack.http.get("/api/v1/files", params={"deleted": True}).json()["items"]
-    assert len(trashed) == 1
+    assert not blob.exists()
 
-    assert stack.http.post(f"/api/v1/files/{file_id}/restore").status_code == 200
-    assert stack.http.get("/api/v1/files").json()["total"] == 1
-
-    assert stack.http.delete(f"/api/v1/files/{file_id}").status_code == 200
-    assert stack.http.delete(f"/api/v1/files/{file_id}/purge").status_code == 200
-    assert stack.http.get("/api/v1/files", params={"deleted": True}).json()["total"] == 0
+    # 再删一次：文件已经不存在，应该是 404 而不是 500
+    assert stack.http.delete(f"/api/v1/files/{file_id}").status_code == 404
 
 
 def test_cancel_running_task(stack):
@@ -597,7 +594,8 @@ def test_archive_packs_a_directory_and_keeps_structure(stack):
     assert bundle.read("pkg/sub/报告.txt").decode() == "中文内容"
 
 
-def test_delete_tree_moves_the_whole_directory_to_trash(stack):
+def test_delete_tree_removes_the_whole_directory(stack):
+    """整目录删除是真删：库里的行和磁盘上的 blob 都不留。"""
     fetch(stack, "gone/a.txt", b"a")
     fetch(stack, "gone/sub/b.txt", b"b")
     fetch(stack, "keep/c.txt", b"c")
@@ -611,8 +609,6 @@ def test_delete_tree_moves_the_whole_directory_to_trash(stack):
     live = stack.http.get("/api/v1/files").json()["items"]
     assert {item["rel_path"] for item in live} == {"keep/c.txt"}
 
-    trashed = stack.http.get(
-        "/api/v1/files/browse",
-        params={"agent_id": stack.agent_id, "path": "gone", "deleted": True},
-    ).json()
-    assert trashed["total_files"] == 2
+    # 只剩 keep/c.txt 一个 blob
+    blobs = [path for path in stack.settings.files_dir.rglob("*") if path.is_file()]
+    assert len(blobs) == 1

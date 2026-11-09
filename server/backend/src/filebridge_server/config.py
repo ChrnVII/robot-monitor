@@ -86,9 +86,6 @@ class Settings(BaseSettings):
     login_rate_limit_per_minute: int = 10
     task_rate_limit_per_minute: int = 30
 
-    # --- 回收站 ---------------------------------------------------------
-    trash_retention_days: int = 30
-
     # --- 派生 -----------------------------------------------------------
 
     @property
@@ -103,6 +100,7 @@ class Settings(BaseSettings):
     def files_dir(self) -> Path:
         return self.storage_dir / "files"
 
+    # 旧回收站目录：只在启动迁移时清一次，之后不会再往里写
     @property
     def trash_dir(self) -> Path:
         return self.storage_dir / "trash"
@@ -121,7 +119,7 @@ class Settings(BaseSettings):
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        for directory in (self.staging_dir, self.files_dir, self.trash_dir):
+        for directory in (self.staging_dir, self.files_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
     @property

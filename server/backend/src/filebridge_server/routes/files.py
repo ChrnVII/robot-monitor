@@ -1,4 +1,4 @@
-"""文件库：列表、搜索、下载、回收站。
+"""文件库：按目录浏览、搜索、打包、下载、删除。
 
 下载交给 `FileResponse`：它已经处理了 Range（大文件续传）和 RFC 5987 的
 中文文件名编码。自己拼 `Content-Disposition` 很容易在非 ASCII 文件名上炸
@@ -31,13 +31,11 @@ router = APIRouter(
 async def list_files(
     ctx: Context,
     q: str | None = None,
-    deleted: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     return await ctx.tasks.list_files(
         query=(q or "").strip() or None,
-        deleted=deleted,
         limit=min(max(limit, 1), 200),
         offset=max(offset, 0),
     )
@@ -48,7 +46,6 @@ async def browse(
     ctx: Context,
     agent_id: str,
     path: str = "",
-    deleted: bool = False,
     limit: int = 500,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -60,7 +57,6 @@ async def browse(
     return await ctx.tasks.browse(
         agent_id=agent_id,
         path=path,
-        deleted=deleted,
         limit=min(max(limit, 1), 2000),
         offset=max(offset, 0),
     )
@@ -109,16 +105,4 @@ async def download(file_id: str, ctx: Context) -> FileResponse:
 @router.delete("/{file_id}")
 async def delete_file(file_id: str, ctx: Context) -> dict[str, bool]:
     await ctx.tasks.soft_delete(file_id)
-    return {"ok": True}
-
-
-@router.post("/{file_id}/restore")
-async def restore_file(file_id: str, ctx: Context) -> dict[str, bool]:
-    await ctx.tasks.restore(file_id)
-    return {"ok": True}
-
-
-@router.delete("/{file_id}/purge")
-async def purge_file(file_id: str, ctx: Context) -> dict[str, bool]:
-    await ctx.tasks.purge(file_id)
     return {"ok": True}

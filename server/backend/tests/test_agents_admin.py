@@ -3,7 +3,7 @@
 这三件事以前只有 CLI 能做（`revoke-token` / `pending` / `approve`）。搬到网页端之后，
 要钉住的不只是"接口能通"，还有两条语义：
 
-1. **删节点不等于删数据。** 文件默认留着，勾选了也只是进回收站。
+1. **删节点不等于删数据。** 文件默认留着；勾选了才是真删。
 2. **批准动作本身不产生凭据。** token 仍然只在 B 领取时现场签发、且只签一次。
 """
 
@@ -142,17 +142,16 @@ def test_delete_keeps_files_by_default(tmp_path):
         body = client.delete(f"/api/v1/agents/{agent['agent_id']}").json()
 
         assert body["files_kept"] == 1
-        assert body["files_trashed"] == 0
+        assert body["files_removed"] == 0
 
         files = client.get("/api/v1/files").json()["items"]
         assert [f["id"] for f in files] == [file_id]
-        assert files[0]["deleted_at"] is None
 
     # 磁盘上的文件也还在
     assert (settings.files_dir / agent["agent_id"] / file_id[:2] / file_id).exists()
 
 
-def test_delete_with_files_moves_them_to_trash(tmp_path):
+def test_delete_with_files_removes_them_for_good(tmp_path):
     settings, app = make_app(tmp_path, enroll_policy="open")
     with TestClient(app) as client:
         agent = enroll(client)
@@ -163,15 +162,12 @@ def test_delete_with_files_moves_them_to_trash(tmp_path):
             f"/api/v1/agents/{agent['agent_id']}", params={"delete_files": True}
         ).json()
 
-        assert body["files_trashed"] == 1
+        assert body["files_removed"] == 1
         assert body["files_kept"] == 0
+        assert client.get("/api/v1/files").json()["items"] == []
 
-        # 只是进回收站，还能还原
-        trash = client.get("/api/v1/files", params={"deleted": True}).json()["items"]
-        assert [f["id"] for f in trash] == [file_id]
-        assert client.post(f"/api/v1/files/{file_id}/restore").status_code == 200
-
-    assert (settings.trash_dir / file_id).exists() is False  # 已还原回 files/
+    # 勾了"顺便删文件"就是真删，磁盘上也不该留
+    assert not (settings.files_dir / agent["agent_id"] / file_id[:2] / file_id).exists()
 
 
 def test_delete_cancels_running_tasks_and_drops_staging(tmp_path):

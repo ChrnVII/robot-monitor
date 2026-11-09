@@ -35,7 +35,7 @@ db.py         SQLite WAL + 单连接 + 写事务
 auth.py       C 侧会话、密码（存库）与 B 侧设备 token / 注册申请
 hub.py        连接注册表 + 单写者 outbox + pending Future
 ws.py         /ws/agent（hello → 注册 → 续传清单 → 收发帧）
-storage.py    预分配 .part、偏移写、sha256、原子 rename、回收站
+storage.py    预分配 .part、偏移写、sha256、原子 rename、删除
 services.py   任务编排与状态机
 paths.py      A 侧路径规范化（双层校验第一层）
 routes/       auth / agents / tasks / files / uploads / events / system
@@ -48,4 +48,4 @@ uv run pytest
 ```
 
 `tests/test_upload_flow.py` 会真的起 uvicorn、真的跑一个 agent、真的分片上传，
-覆盖 sha256、Range 206、回收站、取消、匿名 401、SSE 事件。
+覆盖 sha256、Range 206、删除、取消、匿名 401、SSE 事件。

@@ -73,8 +73,8 @@ async def list_agents(ctx: Context) -> dict[str, Any]:
 async def delete_agent(agent_id: str, ctx: Context, delete_files: bool = False) -> dict[str, Any]:
     """注销一台节点。
 
-    `delete_files=true` 才会动文件，而且只把它们移进回收站——删节点是个
-    不可逆动作，不该顺手把唯一的副本也删了。
+    `delete_files=true` 会把它的文件从库里**真删**——删节点是不可逆动作，
+    默认不动文件；要连文件一起清，调用方必须显式勾选。
     """
     return await ctx.tasks.remove_agent(agent_id, delete_files=delete_files)
 

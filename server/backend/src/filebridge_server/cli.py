@@ -276,7 +276,7 @@ def _shares_storage(paths: list[str]) -> bool:
 
 
 async def _duplicate_groups(db: Database) -> list[Any]:
-    """按 (节点, sha256) 找重复；回收站里的不算——那些本来就等着被清掉。
+    """按 (节点, sha256) 找重复。
 
     排序按"能释放的空间"倒序，先处理大头。
     """

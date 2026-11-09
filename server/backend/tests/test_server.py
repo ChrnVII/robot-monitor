@@ -35,7 +35,6 @@ def test_startup_creates_storage_layout(tmp_path):
 
     assert (storage / "staging").is_dir()
     assert (storage / "files").is_dir()
-    assert (storage / "trash").is_dir()
 
 
 def test_chunk_size_scales_with_file_size():

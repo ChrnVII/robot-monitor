@@ -73,6 +73,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ctx = ctx
 
     await task_service.recover_after_restart()
+    # 一次性：把旧回收站里的文件清掉。删除已经改成真删，这个状态不再存在。
+    purged_trash = await task_service.purge_legacy_trash()
+    if purged_trash:
+        logger.warning("已清空历史回收站：%d 个文件（原件仍在 B 上，需要时可重新取件）", purged_trash)
     hub.start_sweeper()
     maintenance = asyncio.create_task(_maintenance(ctx), name="maintenance")
 
@@ -101,7 +105,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _maintenance(ctx: AppContext) -> None:
-    """定期回收：空闲上传会话、过期会话、超期回收站文件。
+    """定期回收：空闲上传会话、过期会话、残留的打包临时文件。
 
     放在一个循环里而不是三个，是因为它们都是"每分钟做一次、做失败也不致命"
     的清理动作；分开只会多三个需要单独 cancel 的 task。
@@ -111,14 +115,12 @@ async def _maintenance(ctx: AppContext) -> None:
         try:
             swept = await ctx.tasks.sweep_idle_uploads()
             purged_sessions = await ctx.auth.purge_expired_sessions()
-            purged_files = await ctx.tasks.purge_expired_trash()
             stale_archives = await ctx.tasks.sweep_archive_temp()
-            if swept or purged_sessions or purged_files or stale_archives:
+            if swept or purged_sessions or stale_archives:
                 logger.info(
-                    "maintenance: %d idle upload(s), %d session(s), %d trashed file(s), %d stale archive(s)",
+                    "maintenance: %d idle upload(s), %d session(s), %d stale archive(s)",
                     swept,
                     purged_sessions,
-                    purged_files,
                     stale_archives,
                 )
         except asyncio.CancelledError:
