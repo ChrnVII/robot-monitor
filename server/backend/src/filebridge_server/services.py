@@ -114,11 +114,17 @@ class TaskService:
     # 查询
     # ------------------------------------------------------------------
 
-    async def list_tasks(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
+    async def list_tasks(
+        self, *, agent_id: str | None = None, limit: int = 100, offset: int = 0
+    ) -> dict[str, Any]:
+        # 顶栏选了哪台节点，任务页就只看那台，不混在一起
+        where = "WHERE agent_id = ?" if agent_id else ""
+        params: list[Any] = [agent_id] if agent_id else []
         rows = await self.db.fetchall(
-            "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)
+            f"SELECT * FROM tasks {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            [*params, limit, offset],
         )
-        total = await self.db.fetchval("SELECT COUNT(*) FROM tasks", default=0)
+        total = await self.db.fetchval(f"SELECT COUNT(*) FROM tasks {where}", params, default=0)
         return {"items": [self._task_view(r) for r in rows], "total": int(total)}
 
     async def get_task(self, task_id: str) -> dict[str, Any]:

@@ -3,6 +3,7 @@ import { onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { AgentsApi, errorMessage } from '../api/client'
+import { useDeviceStore } from '../stores/device'
 import { formatTime, relativeTime } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
@@ -11,6 +12,7 @@ defineOptions({ name: 'NodesView' })
 
 const router = useRouter()
 const live = useLiveEvents()
+const device = useDeviceStore()
 
 const agents = ref([])
 const pending = ref([])
@@ -50,7 +52,9 @@ async function loadPending({ silent = false } = {}) {
 }
 
 function browse(agent) {
-  router.push({ name: 'browse', query: { agent: agent.id } })
+  // 顶栏的下拉框是全局的：在这里点「浏览文件」等于把它切到这台
+  device.select(agent.id)
+  router.push({ name: 'browse' })
 }
 
 function askDelete(agent) {

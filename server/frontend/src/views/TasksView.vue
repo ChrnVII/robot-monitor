@@ -1,7 +1,8 @@
 <script setup>
-import { onActivated, onDeactivated, onMounted, onUnmounted, ref } from 'vue'
+import { onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { TasksApi, errorMessage } from '../api/client'
+import { useDeviceStore } from '../stores/device'
 import { dirOf, formatBytes, formatTime, taskStatus } from '../utils/format'
 import { useLiveEvents } from '../composables/useLiveEvents'
 
@@ -9,6 +10,8 @@ import { useLiveEvents } from '../composables/useLiveEvents'
 defineOptions({ name: 'TasksView' })
 
 const { on, onReconnect } = useLiveEvents()
+// 顶栏选中哪台节点，这里就只看那台的任务
+const device = useDeviceStore()
 
 const tasks = ref([])
 const loading = ref(false)
@@ -20,7 +23,7 @@ const ACTIVE = new Set(['pending', 'uploading', 'verifying'])
 async function load({ silent = false } = {}) {
   if (!silent) loading.value = true
   try {
-    const { data } = await TasksApi.list({ limit: 200 })
+    const { data } = await TasksApi.list({ agent_id: device.id, limit: 200 })
     tasks.value = data.items || []
   } catch (error) {
     ElMessage.error(errorMessage(error))
@@ -98,6 +101,12 @@ function stopWatching() {
   off = null
 }
 
+// 换节点就是换一批任务：整页重来，不做增量
+watch(
+  () => device.id,
+  () => load()
+)
+
 let firstActivate = true
 
 onMounted(() => {
@@ -124,14 +133,14 @@ onUnmounted(stopWatching)
 <template>
   <div class="panel">
     <div class="panel-head">
-      <h2>取件任务（{{ tasks.length }}）</h2>
+      <h2>上传任务（{{ tasks.length }}）</h2>
       <el-button text @click="load()">
         <el-icon><Refresh /></el-icon>
         <span style="margin-left: 4px">刷新</span>
       </el-button>
     </div>
 
-    <el-table :data="tasks" v-loading="loading" style="width: 100%" empty-text="还没有任务">
+    <el-table :data="tasks" v-loading="loading" style="width: 100%" empty-text="这台节点还没有上传任务">
       <el-table-column label="文件" min-width="200">
         <template #default="{ row }">
           <!-- 一行显示 "路径/文件名"：路径压暗、文件名加深加粗。

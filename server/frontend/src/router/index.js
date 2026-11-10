@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-// 层级：「文件管理」是一级导航（侧栏里那一项），它下面挂四个子页面，
-// 子页面在顶栏以 tab 的形式出现（见 layout/AppLayout.vue）。
-// 一级那层自己不渲染内容，只负责把那四个收在同一个前缀下。
+// 一级导航（侧栏）：文件管理、节点。
+// 「文件管理」下面挂三个子页面，在顶栏以 tab 出现；「节点」是独立页面。
+// meta.device = true 的页面受顶栏那个全局节点下拉框影响（见 layout/AppLayout.vue）。
 const routes = [
   {
     path: '/login',
@@ -12,9 +12,8 @@ const routes = [
     meta: { public: true, title: '登录' }
   },
   {
-    path: '/manage',
+    path: '/',
     component: () => import('../layout/AppLayout.vue'),
-    meta: { title: '文件管理' },
     children: [
       { path: '', redirect: { name: 'nodes' } },
       {
@@ -23,29 +22,29 @@ const routes = [
         component: () => import('../views/NodesView.vue'),
         meta: { title: '节点' }
       },
+      { path: 'manage', redirect: { name: 'browse' } },
+      { path: 'manage/nodes', redirect: { name: 'nodes' } },
       {
-        path: 'browse',
+        path: 'manage/browse',
         name: 'browse',
         component: () => import('../views/BrowseView.vue'),
-        meta: { title: '取件' }
+        meta: { title: '取件', device: true }
       },
       {
-        path: 'tasks',
+        path: 'manage/tasks',
         name: 'tasks',
         component: () => import('../views/TasksView.vue'),
-        meta: { title: '任务' }
+        meta: { title: '上传任务', device: true }
       },
       {
-        path: 'files',
+        path: 'manage/files',
         name: 'files',
         component: () => import('../views/FilesView.vue'),
         meta: { title: '文件库' }
       }
     ]
   },
-  { path: '/', redirect: { name: 'nodes' } },
   // 改层级之前收藏的书签、以及外部链接：按 name 重定向，不保留旧路径。
-  { path: '/nodes', redirect: { name: 'nodes' } },
   { path: '/browse', redirect: { name: 'browse' } },
   { path: '/tasks', redirect: { name: 'tasks' } },
   { path: '/files', redirect: { name: 'files' } },

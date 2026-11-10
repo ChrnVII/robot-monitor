@@ -4,29 +4,39 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { SystemApi } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { useDeviceStore } from '../stores/device'
 import { useLiveEvents } from '../composables/useLiveEvents'
 import { formatBytes } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const device = useDeviceStore()
 const { connect, disconnect, on, onReconnect } = useLiveEvents()
 
 const stats = ref({ disk_free_bytes: 0, agents_online: 0, files: 0, pending_enrollments: 0 })
 
-// 一级导航只有「文件管理」一项（侧栏）。
-// 底下这四个是它的子页面，切换靠顶栏的 tab —— 见 router/index.js 的嵌套结构。
+// 侧栏有两项：文件管理（下挂三个 tab）和节点（独立页面）。
+// 「节点」不在文件管理下面，所以顶栏 tab 只在文件管理里出现。
 const tabs = [
-  { name: 'nodes', label: '节点', icon: 'Monitor' },
   { name: 'browse', label: '取件', icon: 'FolderOpened' },
-  { name: 'tasks', label: '任务', icon: 'Tickets' },
+  { name: 'tasks', label: '上传任务', icon: 'Tickets' },
   { name: 'files', label: '文件库', icon: 'Files' }
 ]
 
-// 侧栏那一项在四个子页面里都该是选中态。这里不靠 router-link 的 active-class：
+// 侧栏那一项在三个子页面里都该是选中态。这里不靠 router-link 的 active-class：
 // 它按"目标路由是否被当前路由包含"算，而目标是子页面、当前也是子页面，兄弟之间
 // 判不出来。
 const inManage = computed(() => route.path.startsWith('/manage'))
+const inNodes = computed(() => route.name === 'nodes')
+
+// 顶栏节点选择器只出现在"内容由某台节点决定"的页面（route.meta.device）。
+// 节点页是节点列表本身、文件库是全部节点的归档，放上去只会误导。
+const showDevice = computed(() => Boolean(route.meta.device))
+const selectedDevice = computed({
+  get: () => device.id,
+  set: (value) => device.select(value)
+})
 
 let timer = null
 let offEvent = null
@@ -48,6 +58,7 @@ async function handleLogout() {
 
 onMounted(() => {
   loadStats()
+  device.load()
   timer = setInterval(loadStats, 30000)
   connect()
   onReconnect(loadStats)
@@ -58,6 +69,9 @@ onMounted(() => {
       )
     ) {
       loadStats()
+    }
+    if (['agent_online', 'agent_offline', 'agent_removed'].includes(event.type)) {
+      device.load()
     }
   })
 })
@@ -82,16 +96,27 @@ onUnmounted(() => {
 
       <nav>
         <div class="nav-label">工作区</div>
-        <router-link :to="{ name: 'nodes' }" class="nav-item" :class="{ active: inManage }">
+        <router-link :to="{ name: 'browse' }" class="nav-item" :class="{ active: inManage }">
           <el-icon><Folder /></el-icon>
           <span>文件管理</span>
+        </router-link>
+        <router-link :to="{ name: 'nodes' }" class="nav-item" :class="{ active: inNodes }">
+          <el-icon><Monitor /></el-icon>
+          <span>节点</span>
+          <span
+            v-if="stats.pending_enrollments"
+            class="nav-badge"
+            :title="`${stats.pending_enrollments} 台设备等待批准`"
+          >
+            {{ stats.pending_enrollments }}
+          </span>
         </router-link>
       </nav>
     </aside>
 
     <div class="main">
       <header class="topbar">
-        <nav class="tabs">
+        <nav v-if="inManage" class="tabs">
           <router-link
             v-for="tab in tabs"
             :key="tab.name"
@@ -101,20 +126,30 @@ onUnmounted(() => {
           >
             <el-icon><component :is="tab.icon" /></el-icon>
             {{ tab.label }}
-            <span
-              v-if="tab.name === 'nodes' && stats.pending_enrollments"
-              class="tab-badge"
-              :title="`${stats.pending_enrollments} 台设备等待批准`"
-            >
-              {{ stats.pending_enrollments }}
-            </span>
           </router-link>
         </nav>
+        <h1 v-else class="page-heading">{{ route.meta.title }}</h1>
 
         <div class="topbar-right">
-          <!-- 磁盘余量留在一级位置：磁盘满会让建任务直接失败（服务端有
-               insufficient_space），不是"偶尔瞟一眼"的信息。节点在线数进了
-               下拉——节点页本来就有更全的在线状态，这里只是个摘要。 -->
+          <!-- 全局节点选择：切一次，取件/任务都跟着换。只在受它影响的页面出现 -->
+          <div v-if="showDevice" class="device-picker">
+            <span class="device-label">节点</span>
+            <span v-if="device.current" class="device-dot" :class="{ online: device.online }" />
+            <el-select
+              v-model="selectedDevice"
+              size="default"
+              placeholder="没有可用节点"
+              :disabled="!device.agents.length"
+            >
+              <el-option
+                v-for="agent in device.agents"
+                :key="agent.id"
+                :label="`${agent.name}${agent.online ? '' : '（离线）'}`"
+                :value="agent.id"
+              />
+            </el-select>
+          </div>
+
           <span class="pill">
             <el-icon><Coin /></el-icon>
             {{ formatBytes(stats.disk_free_bytes) }} 可用

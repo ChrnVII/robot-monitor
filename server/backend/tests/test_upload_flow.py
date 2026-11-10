@@ -612,3 +612,29 @@ def test_delete_tree_removes_the_whole_directory(stack):
     # 只剩 keep/c.txt 一个 blob
     blobs = [path for path in stack.settings.files_dir.rglob("*") if path.is_file()]
     assert len(blobs) == 1
+
+
+def test_task_list_filters_by_agent(stack):
+    """顶栏选了哪台节点，任务页就只看那台。"""
+    fetch(stack, "only.txt", b"only")
+
+    mine = stack.http.get("/api/v1/tasks", params={"agent_id": stack.agent_id}).json()
+    assert mine["total"] == 1
+    assert {item["agent_id"] for item in mine["items"]} == {stack.agent_id}
+
+    other = stack.http.get("/api/v1/tasks", params={"agent_id": "someone-else"}).json()
+    assert other["total"] == 0
+    assert other["items"] == []
+
+
+def test_task_list_filters_by_agent(stack):
+    """顶栏选了哪台节点，任务页就只看那台。"""
+    fetch(stack, "only.txt", b"only")
+
+    mine = stack.http.get("/api/v1/tasks", params={"agent_id": stack.agent_id}).json()
+    assert mine["total"] == 1
+    assert {item["agent_id"] for item in mine["items"]} == {stack.agent_id}
+
+    other = stack.http.get("/api/v1/tasks", params={"agent_id": "someone-else"}).json()
+    assert other["total"] == 0
+    assert other["items"] == []

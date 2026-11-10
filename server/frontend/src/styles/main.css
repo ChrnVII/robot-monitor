@@ -337,6 +337,63 @@ a {
   opacity: 1;
 }
 
+/* 节点页没有 tab：左边用页面标题占位 */
+.page-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+}
+
+/* 顶栏的全局节点选择器：只在受它影响的页面出现 */
+.device-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-label {
+  font-size: 12.5px;
+  color: var(--fb-text-faint);
+}
+
+.device-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.device-dot.online {
+  background: var(--fb-success);
+  box-shadow: 0 0 0 3px var(--fb-success-soft);
+}
+
+.device-picker .el-select {
+  width: 200px;
+}
+
+.device-picker .el-select__wrapper {
+  height: 32px;
+  border-radius: 8px;
+}
+
+.nav-badge {
+  margin-left: auto;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #ef5a52, #de3f37);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 2px 6px -2px rgba(224, 71, 63, 0.8);
+}
+
 .tab-badge {
   min-width: 17px;
   height: 17px;
@@ -1517,6 +1574,12 @@ a {
   }
   .tab {
     padding: 8px 10px;
+  }
+  .device-label {
+    display: none;
+  }
+  .device-picker .el-select {
+    width: 150px;
   }
   .content {
     padding: 20px 20px 40px;

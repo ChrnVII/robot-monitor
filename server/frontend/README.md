@@ -1,6 +1,6 @@
 # filebridge-frontend
 
-Vue 3 + JavaScript + Vite + Element Plus。五个页面：登录、节点、取件、任务、文件库。
+Vue 3 + JavaScript + Vite + Element Plus。侧栏两级入口：文件管理（取件 / 上传任务 / 文件库）和节点；另有登录页。
 
 ## 开发
 
@@ -23,7 +23,7 @@ npm run build      # 产出 dist/，由 backend 直接托管
 src/
 ├── api/client.js              axios 实例 + 401 广播 + 按 code 取错误文案
 ├── composables/useLiveEvents.js  SSE 单例（断线重连 + 重连后对账钩子）
-├── layout/AppLayout.vue       侧栏 + 顶栏（磁盘余量、账号菜单）
+├── layout/AppLayout.vue       侧栏 + 顶栏（全局节点选择、磁盘余量、账号菜单）
 ├── stores/auth.js             会话状态
 ├── views/                     Login / Nodes / Browse / Tasks / Files
 └── utils/format.js            字节、时间、任务状态文案

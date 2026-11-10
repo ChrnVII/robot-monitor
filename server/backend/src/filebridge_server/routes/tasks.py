@@ -94,8 +94,12 @@ async def create_batch(
 
 
 @router.get("")
-async def list_tasks(ctx: Context, limit: int = 100, offset: int = 0) -> dict[str, Any]:
-    return await ctx.tasks.list_tasks(limit=min(max(limit, 1), 500), offset=max(offset, 0))
+async def list_tasks(
+    ctx: Context, agent_id: str | None = None, limit: int = 100, offset: int = 0
+) -> dict[str, Any]:
+    return await ctx.tasks.list_tasks(
+        agent_id=agent_id, limit=min(max(limit, 1), 500), offset=max(offset, 0)
+    )
 
 
 @router.get("/{task_id}")
