@@ -394,20 +394,6 @@ a {
   box-shadow: 0 2px 6px -2px rgba(224, 71, 63, 0.8);
 }
 
-.tab-badge {
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #ef5a52, #de3f37);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 17px;
-  text-align: center;
-  box-shadow: 0 2px 6px -2px rgba(224, 71, 63, 0.8);
-}
-
 .topbar-right {
   display: flex;
   align-items: center;
@@ -766,12 +752,6 @@ a {
 .browse-bar {
   justify-content: flex-start;
   gap: 12px;
-}
-
-.browse-bar .bar-label {
-  font-size: 12px;
-  color: var(--rm-text-faint);
-  letter-spacing: 0.04em;
 }
 
 .browse-bar .bar-actions {

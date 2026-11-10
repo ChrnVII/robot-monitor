@@ -93,8 +93,8 @@ async def status_of(db: Database, *, task_id: str, upload_id: str) -> tuple[str,
     return upload["status"], task["status"]
 
 
-async def test_finalize_crash_lands_in_terminal_state(stack, monkeypatch):
-    """`finalize` 抛 OSError 时，upload 和 task 必须一起落到 failed。"""
+async def test_commit_crash_lands_in_terminal_state(stack, monkeypatch):
+    """落盘时抛 OSError（磁盘满之类），upload 和 task 必须一起落到 failed。"""
     settings, db, service = stack
     task_id, upload_id = await started_upload(service)
     await feed_all_chunks(service, upload_id)
@@ -102,7 +102,7 @@ async def test_finalize_crash_lands_in_terminal_state(stack, monkeypatch):
     async def boom(*args, **kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(service.storage, "finalize", boom)
+    monkeypatch.setattr(service.storage, "commit", boom)
 
     with pytest.raises(ApiError) as excinfo:
         await service.complete_upload(upload_id, None)

@@ -46,8 +46,7 @@ async def login(
             headers={"Retry-After": str(retry)},
         )
 
-    # 密码现在存在数据库里（env 只是升级兼容的回退），所以这里必须问服务层，
-    # 不能再看 settings.auth_configured。
+    # 密码只存在数据库里，所以这里必须问服务层。
     if not await ctx.auth.password_configured():
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

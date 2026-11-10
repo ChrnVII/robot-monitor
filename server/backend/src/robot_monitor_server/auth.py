@@ -34,11 +34,8 @@ from .db import Database
 
 _hasher = PasswordHasher()
 
-# agent token 前缀，便于在日志/配置里一眼认出这是哪种凭据。
-# 改名前的 token 是 fba_（filebridge agent）：已经发出去的那些继续有效，
-# 新签发的一律用 rma_。校验时必须两个都认，否则升级会把在线节点全踢下线。
+# agent token 前缀，便于在日志/配置里一眼认出这是哪种凭据
 AGENT_TOKEN_PREFIX = "rma_"
-LEGACY_AGENT_TOKEN_PREFIXES = ("fba_",)
 
 
 # --- 密码 ----------------------------------------------------------------
@@ -101,36 +98,14 @@ class AuthService:
     # --- C 侧 -----------------------------------------------------------
 
     async def _credentials(self) -> tuple[str, str] | None:
-        """当前生效的 (用户名, 密码哈希)。
-
-        读序：数据库 → 环境变量。数据库优先，因为它是可修改的那一份；
-        env 里的哈希只在升级老部署时被"收养"一次（见 adopt_env_password）。
-        """
+        """当前生效的 (用户名, 密码哈希)。密码只有数据库这一份真相。"""
         row = await self.db.fetchone("SELECT username, password_hash FROM admin_user WHERE id = 1")
-        if row is not None:
-            return str(row["username"]), str(row["password_hash"])
-        if self.settings.auth_configured:
-            return self.settings.admin_username, self.settings.admin_password_hash
-        return None
+        if row is None:
+            return None
+        return str(row["username"]), str(row["password_hash"])
 
     async def password_configured(self) -> bool:
         return await self._credentials() is not None
-
-    async def adopt_env_password(self) -> bool:
-        """把 env 里的哈希搬进数据库（不接触明文）。
-
-        老部署升级后跑一次，之后就由数据库说了算，改密码再也不需要动 env 文件。
-        """
-        if not self.settings.auth_configured:
-            return False
-        row = await self.db.fetchone("SELECT id FROM admin_user WHERE id = 1")
-        if row is not None:
-            return False
-        await self.db.execute(
-            "INSERT INTO admin_user (id, username, password_hash, updated_at) VALUES (1, ?, ?, ?)",
-            (self.settings.admin_username, self.settings.admin_password_hash, time.time()),
-        )
-        return True
 
     async def set_password(self, username: str, password: str) -> None:
         await self.db.execute(
@@ -369,9 +344,7 @@ class AuthService:
 
     async def authenticate_agent(self, raw_token: str | None) -> aiosqlite.Row | None:
         """按 token 找 agent。吊销、空 token、格式不对一律返回 None。"""
-        if not raw_token or not raw_token.startswith(
-            (AGENT_TOKEN_PREFIX, *LEGACY_AGENT_TOKEN_PREFIXES)
-        ):
+        if not raw_token or not raw_token.startswith(AGENT_TOKEN_PREFIX):
             return None
         row = await self.db.fetchone("SELECT * FROM agents WHERE token_hash = ?", (hash_token(raw_token),))
         if row is None:

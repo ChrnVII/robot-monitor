@@ -59,7 +59,7 @@ async def test_duplicate_groups_orders_by_wasted_space(tmp_path):
         for file_id, digest, size in rows:
             await db.execute(
                 "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256,"
-                " stored_path, created_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,NULL)",
+                " stored_path, created_at) VALUES (?,?,?,?,?,?,?,?)",
                 (file_id, "ag", f"{file_id}.bin", f"{file_id}.bin", size, digest, file_id, now),
             )
 

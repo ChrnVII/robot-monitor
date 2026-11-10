@@ -21,16 +21,15 @@ from robot_monitor_server.db import Database
 PASSWORD = "correct-horse-battery"
 
 
-async def make_service(tmp_path, *, password_hash: str | None = None) -> AuthService:
-    settings = Settings(
-        data_dir=tmp_path / "data",
-        storage_dir=tmp_path / "storage",
-        admin_password_hash=password_hash if password_hash is not None else hash_password(PASSWORD),
-    )
+async def make_service(tmp_path, *, with_password: bool = True) -> AuthService:
+    settings = Settings(data_dir=tmp_path / "data", storage_dir=tmp_path / "storage")
     settings.ensure_dirs()
     db = Database(settings.db_path)
     await db.connect()
-    return AuthService(db, settings)
+    auth = AuthService(db, settings)
+    if with_password:
+        await auth.set_password("admin", PASSWORD)
+    return auth
 
 
 async def test_login_returns_session_token(tmp_path):
@@ -55,7 +54,7 @@ async def test_wrong_password_is_rejected(tmp_path):
 
 
 async def test_missing_password_hash_disables_login(tmp_path):
-    auth = await make_service(tmp_path, password_hash="")
+    auth = await make_service(tmp_path, with_password=False)
 
     assert await auth.login("admin", PASSWORD) is None
 
@@ -125,28 +124,6 @@ async def test_agent_token_lookup_rejects_garbage(tmp_path):
     await auth.db.close()
 
 
-async def test_legacy_filebridge_token_still_authenticates(tmp_path):
-    """改名之前签发的 fba_ token 不能因为换前缀就失效——那会让在线节点全部掉线。"""
-    from robot_monitor_server.auth import hash_token
-
-    auth = await make_service(tmp_path)
-    legacy = "fba_" + "a" * 48
-    await auth.db.execute(
-        "INSERT INTO agents (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
-        ("ag-legacy", "old-node", hash_token(legacy), 0.0),
-    )
-
-    row = await auth.authenticate_agent(legacy)
-    assert row is not None
-    assert row["id"] == "ag-legacy"
-
-    # 新签发的仍然是新前缀
-    _, fresh = await auth.issue_agent_token("b-office")
-    assert fresh.startswith("rma_")
-
-    await auth.db.close()
-
-
 async def test_reissue_token_replaces_old_one(tmp_path):
     auth = await make_service(tmp_path)
 
@@ -205,39 +182,11 @@ async def test_password_verification_runs_in_a_worker_thread(tmp_path, monkeypat
 
 
 async def test_password_can_be_set_in_db(tmp_path):
-    auth = await make_service(tmp_path, password_hash="")
+    auth = await make_service(tmp_path, with_password=False)
 
     assert await auth.password_configured() is False
     await auth.set_password("admin", PASSWORD)
     assert await auth.password_configured() is True
-    assert await auth.login("admin", PASSWORD) is not None
-
-    await auth.db.close()
-
-
-async def test_db_password_wins_over_env(tmp_path):
-    """env 和库里都有密码时，必须用库里的。
-
-    否则改完密码发现 env 里的旧哈希还在生效——这是最难自查的一类问题。
-    """
-    auth = await make_service(tmp_path)  # env hash = PASSWORD
-    await auth.set_password("admin", "a-brand-new-password")
-
-    assert await auth.login("admin", PASSWORD) is None
-    assert await auth.login("admin", "a-brand-new-password") is not None
-
-    await auth.db.close()
-
-
-async def test_adopt_env_password_moves_hash_into_db(tmp_path):
-    auth = await make_service(tmp_path)
-
-    assert await auth.adopt_env_password() is True
-    row = await auth.db.fetchone("SELECT username, password_hash FROM admin_user WHERE id = 1")
-    assert row["username"] == "admin"
-    assert row["password_hash"].startswith("$argon2")
-
-    assert await auth.adopt_env_password() is False  # 幂等
     assert await auth.login("admin", PASSWORD) is not None
 
     await auth.db.close()
@@ -267,7 +216,7 @@ async def test_change_password_rejects_wrong_current(tmp_path):
 
 
 async def test_initial_password_file_is_removed_on_login(tmp_path):
-    auth = await make_service(tmp_path, password_hash="")
+    auth = await make_service(tmp_path, with_password=False)
     await auth.set_password("admin", PASSWORD)
 
     marker = tmp_path / "data" / "initial-password"

@@ -105,7 +105,7 @@ def test_rejected_frames(case):
 def test_unknown_command_parses_but_is_not_dispatchable():
     """未列在枚举里的命令必须能解析出来。
 
-    如果解析阶段就抛错，老版本 B 收到新命令时会直接关连接，而正确行为是回
+    如果解析阶段就抛错，B 收到新命令时会直接关连接，而正确行为是回
     `unknown_command` 让 A 知道"这台机器不会做这件事"。
     """
     raw = json.dumps({"v": 1, "type": "command", "id": "x", "command": "run_command"})

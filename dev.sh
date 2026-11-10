@@ -80,10 +80,6 @@ case "$command" in
     run server/backend uv run robot-monitor-server reject "$@"
     ;;
 
-  hash-password)
-    run server/backend uv run robot-monitor-server hash-password "$@"
-    ;;
-
   issue-token)
     run server/backend uv run robot-monitor-server issue-token "$@"
     ;;
@@ -110,8 +106,7 @@ case "$command" in
   passwd                    改管理员密码（立即生效，不用重启）
   pending                   列出待批准的设备（网页「节点」页也能看/批）
   approve / reject <id>     命令行批准或拒绝（日常用网页点即可）
-  hash-password             兼容用：生成密码哈希（不再需要，密码存在库里）
-  issue-token --name X      兼容用：手工签发 agent token（默认自动注册）
+  issue-token --name X      手工签发 agent token（跳过注册审批，一般不用）
   revoke-token <agent_id>   吊销 agent token
   list-agents               列出节点
 

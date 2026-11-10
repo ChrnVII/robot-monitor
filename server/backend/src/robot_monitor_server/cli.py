@@ -7,8 +7,8 @@
 其余命令都是"出了情况才用"：`passwd` 改密码、`pending` / `approve` 处理新设备、
 `revoke-token` 吊销、`list-agents` 查看、`dedup` 清理历史重复文件。
 
-`issue-token` / `hash-password` 保留为手工通道（自动化脚本、老部署迁移），
-默认流程不需要它们。
+`issue-token` 保留为手工通道：自动化脚本、或者想跳过注册审批直接发凭据时用，
+默认流程不需要它。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .auth import AuthService, hash_password
+from .auth import AuthService
 from .config import settings
 from .db import Database
 
@@ -41,9 +41,6 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default=None, help="监听地址，默认取 ROBOT_MONITOR_HOST")
     serve.add_argument("--port", type=int, default=None, help="端口，默认 8000")
     serve.add_argument("--reload", action="store_true", help="开发模式：改代码自动重启")
-
-    hp = sub.add_parser("hash-password", help="生成 Argon2 密码哈希")
-    hp.add_argument("--password", default=None, help="不传则交互式输入（推荐）")
 
     it = sub.add_parser("issue-token", help="签发或轮换一台 agent 的 token")
     it.add_argument("--name", required=True, help="agent 名称，例如 b-office")
@@ -81,8 +78,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if command == "serve":
         run_server(host=args.host, port=args.port, reload=args.reload)
-    elif command == "hash-password":
-        print_hash_password(args.password)
     elif command == "issue-token":
         asyncio.run(_issue_token(args.name, args.hostname, args.os_name))
     elif command == "revoke-token":
@@ -130,27 +125,6 @@ def run_server(*, host: str | None, port: int | None, reload: bool) -> None:
         log_level=settings.log_level.lower(),
         proxy_headers=True,
         forwarded_allow_ips="127.0.0.1",
-    )
-
-
-def print_hash_password(password: str | None) -> None:
-    if password is None:
-        first = getpass.getpass("管理员密码: ")
-        second = getpass.getpass("再输一次: ")
-        if first != second:
-            print("两次输入不一致", file=sys.stderr)
-            sys.exit(1)
-        if len(first) < 8:
-            print("密码至少 8 位", file=sys.stderr)
-            sys.exit(1)
-        password = first
-
-    digest = hash_password(password)
-    print(digest)
-    print(
-        "\n把它写进环境变量（注意单引号，避免 $ 被 shell 展开）：\n"
-        f"  ROBOT_MONITOR_ADMIN_PASSWORD_HASH='{digest}'",
-        file=sys.stderr,
     )
 
 
@@ -346,21 +320,11 @@ def _prompt_new_password() -> str:
 async def _ensure_admin_password() -> None:
     """serve 启动前的引导：保证库里有一份可用的管理员密码。
 
-    三种情况：
-    - 库里已经有 → 什么都不做
-    - env 里有哈希（老部署）→ 导入库，之后由库说了算
-    - 都没有 → 有 tty 就交互式问；没有 tty 就生成随机密码落到 600 文件
+    库里已经有就什么都不做；没有则有 tty 就交互式问，没有 tty 就生成随机密码
+    落到 600 文件（systemd 场景）。
     """
 
     async def action(db: Database, auth: AuthService) -> None:
-        if await auth.adopt_env_password():
-            print(
-                "已把 ROBOT_MONITOR_ADMIN_PASSWORD_HASH 导入数据库；"
-                "以后改密码用 `robot-monitor-server passwd`，不需要再动环境变量。",
-                file=sys.stderr,
-            )
-            return
-
         if await auth.password_configured():
             return
 

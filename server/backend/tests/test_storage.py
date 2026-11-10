@@ -75,11 +75,12 @@ async def test_write_to_missing_staging_is_file_not_found(storage):
     assert excinfo.value.code is ErrorCode.FILE_NOT_FOUND
 
 
-async def test_finalize_moves_file_and_removes_staging(storage):
+async def test_verify_then_commit_moves_file_and_removes_staging(storage):
     await upload_all(storage, "up4", PAYLOAD)
     expected = hashlib.sha256(PAYLOAD).hexdigest()
 
-    actual = await storage.finalize("up4", "agent1", "file1", expected_sha256=expected)
+    actual = await storage.verify("up4", expected_sha256=expected)
+    await storage.commit("up4", "agent1", "file1")
 
     assert actual == expected
     final = storage.final_path("agent1", "file1")
@@ -94,7 +95,7 @@ async def test_checksum_mismatch_keeps_staging(storage):
     await upload_all(storage, "up5", PAYLOAD)
 
     with pytest.raises(StorageError) as excinfo:
-        await storage.finalize("up5", "agent1", "file2", expected_sha256="0" * 64)
+        await storage.verify("up5", expected_sha256="0" * 64)
 
     assert excinfo.value.code is ErrorCode.CHECKSUM_MISMATCH
     # 保留 staging 供排查，不落盘
@@ -109,12 +110,13 @@ async def test_server_digest_wins_over_client_claim(storage):
 
     # 报一个"看起来对但不对"的哈希
     with pytest.raises(StorageError):
-        await storage.finalize("up6", "agent1", "file3", expected_sha256=actual[:-1] + "0")
+        await storage.verify("up6", expected_sha256=actual[:-1] + "0")
 
 
 async def test_empty_file_hashes_to_empty_digest(storage):
     await storage.create_staging("up7", 0)
-    actual = await storage.finalize("up7", "agent1", "file4")
+    actual = await storage.verify("up7")
+    await storage.commit("up7", "agent1", "file4")
 
     assert actual == hashlib.sha256(b"").hexdigest()
     assert storage.final_path("agent1", "file4").stat().st_size == 0
@@ -123,7 +125,8 @@ async def test_empty_file_hashes_to_empty_digest(storage):
 async def test_delete_blob_removes_the_file(storage):
     """删除是真删：blob 不留在任何地方，重复删也不报错。"""
     await upload_all(storage, "up8", PAYLOAD)
-    await storage.finalize("up8", "agent1", "file5")
+    await storage.verify("up8")
+    await storage.commit("up8", "agent1", "file5")
     relative = str(storage.final_path("agent1", "file5").relative_to(storage.settings.storage_dir))
 
     await storage.delete_blob(relative)

@@ -104,5 +104,5 @@ async def download(file_id: str, ctx: Context) -> FileResponse:
 
 @router.delete("/{file_id}")
 async def delete_file(file_id: str, ctx: Context) -> dict[str, bool]:
-    await ctx.tasks.soft_delete(file_id)
+    await ctx.tasks.delete_file(file_id)
     return {"ok": True}

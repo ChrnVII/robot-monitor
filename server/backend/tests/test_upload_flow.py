@@ -41,7 +41,7 @@ from robot_monitor_agent.client import AgentClient
 from robot_monitor_agent.config import AgentConfig
 from robot_monitor_agent.sandbox import Sandbox
 
-from robot_monitor_server.auth import AuthService, hash_password
+from robot_monitor_server.auth import AuthService
 from robot_monitor_server.config import Settings
 from robot_monitor_server.db import Database
 from robot_monitor_server.main import create_app
@@ -75,7 +75,6 @@ def stack(tmp_path):
     settings = Settings(
         data_dir=tmp_path / "data",
         storage_dir=tmp_path / "storage",
-        admin_password_hash=hash_password(PASSWORD),
         serve_frontend=False,
         chunk_size_small=CHUNK,
         chunk_size_large=CHUNK,
@@ -86,15 +85,17 @@ def stack(tmp_path):
     )
     settings.ensure_dirs()
 
-    async def bootstrap_token() -> tuple[str, str]:
+    async def bootstrap() -> tuple[str, str]:
         db = Database(settings.db_path)
         await db.connect()
         try:
-            return await AuthService(db, settings).issue_agent_token("b-test", hostname="e2e")
+            auth = AuthService(db, settings)
+            await auth.set_password("admin", PASSWORD)
+            return await auth.issue_agent_token("b-test", hostname="e2e")
         finally:
             await db.close()
 
-    agent_id, token = asyncio.run(bootstrap_token())
+    agent_id, token = asyncio.run(bootstrap())
 
     port = free_port()
     server = uvicorn.Server(

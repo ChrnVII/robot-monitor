@@ -8,10 +8,9 @@
 ```
 .robot-monitor/
   agents/
-    files.example.com-a1b2c3d4.json     # 每个 A 一份，内容就是原来那份 agent.json
+    files.example.com-a1b2c3d4.json     # 每个 A 一份，内容是 server/token/agent_id
     backup.lan:8443-9f8e7d6c.json
   current                               # 最近一次成功使用的 A（规范化地址）
-  agent.json                            # 旧布局，只用于升级时迁移
 ```
 
 文件名带主机名是给人看的：`ls` 一眼就知道这台机器认过几个 A、分别是哪台。
@@ -53,7 +52,6 @@ logger = logging.getLogger("robot-monitor.agent.state")
 
 SLOTS_DIRNAME = "agents"
 CURRENT_FILENAME = "current"
-LEGACY_FILENAME = "agent.json"
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9.-]")
 
@@ -102,11 +100,6 @@ def slots_dir(config: AgentConfig) -> Path:
 
 def current_path(config: AgentConfig) -> Path:
     return store_dir(config) / CURRENT_FILENAME
-
-
-def legacy_path(config: AgentConfig) -> Path:
-    """旧的单文件布局。只读：下一次 save 会把它迁进槽里然后删掉。"""
-    return store_dir(config) / LEGACY_FILENAME
 
 
 # --- 地址规范化 ---------------------------------------------------------
@@ -239,9 +232,6 @@ def stored_slots(config: AgentConfig) -> list[Credentials]:
 def known_servers(config: AgentConfig) -> list[str]:
     """这台机器认过的所有 A 的地址（规范化之后）。给报错信息用，也用来自查。"""
     servers = [canonical_server(item.server) for item in stored_slots(config)]
-    legacy = _read(legacy_path(config))
-    if legacy is not None:
-        servers.append(canonical_server(legacy.server))
     return sorted(dict.fromkeys(servers))
 
 
@@ -254,20 +244,13 @@ def load(config: AgentConfig) -> Credentials | None:
        token —— 那样只会换来一次 4401 和一句看不懂的报错。
     2. 没给：用 `current` 指向的那个（最近一次成功的）。
     3. `current` 丢了但只有一个槽：用它。
-    4. 旧布局的单文件：还能读到就先用着（升级友好，下次 save 时迁走）。
 
     有多个槽又没有 `current` 时返回 None，由调用方要求显式指定，而不是替用户挑
     一台 —— 猜错的话，那台 A 上会凭空多出一台同名节点。
     """
     explicit = (config.server or "").strip()
     if explicit:
-        stored = _read(slot_path(config, explicit))
-        if stored is not None:
-            return stored
-        legacy = _read(legacy_path(config))
-        if legacy is not None and same_server(legacy.server, explicit):
-            return legacy
-        return None
+        return _read(slot_path(config, explicit))
 
     pointer = _current_server(config)
     if pointer:
@@ -280,7 +263,7 @@ def load(config: AgentConfig) -> Credentials | None:
     if len(slots) == 1:
         return slots[0]
 
-    return _read(legacy_path(config))
+    return None
 
 
 def save(config: AgentConfig, credentials: Credentials) -> Path:
@@ -299,35 +282,11 @@ def save(config: AgentConfig, credentials: Credentials) -> Path:
     except OSError as exc:  # pragma: no cover - 磁盘满/只读挂载
         logger.warning("记不住 current 指针：%s", exc)
 
-    _migrate_legacy(config)
     return path
 
 
-def _migrate_legacy(config: AgentConfig) -> None:
-    """旧布局的 agent.json 迁进它自己的槽，然后删掉。
-
-    只迁不删的话，同一个 token 会在磁盘上留两份；直接删的话，万一解析不了就
-    丢了唯一的凭据。所以解析成功才迁+删，解析失败就原地留着给人看。
-    """
-    path = legacy_path(config)
-    legacy = _read(path)
-    if legacy is None:
-        return
-
-    target = slot_path(config, legacy.server)
-    if not target.exists():
-        payload = json.dumps(asdict(legacy), ensure_ascii=False, indent=2) + "\n"
-        _write_secret(target, payload)
-        logger.info("旧凭据已迁移到 %s", target)
-    _unlink(path)
-
-
 def forget_slot(config: AgentConfig, server: str) -> None:
-    """删掉某一台 A 的槽，不碰别的。
-
-    和 `clear()` 的区别：clear 是"我要忘掉这一台"（会顺手收拾 current 和旧文件），
-    这个是内部搬运用——同一个 token 不该在磁盘上留两份。
-    """
+    """删掉某一台 A 的槽，不碰别的（`clear()` 会连 current 一起收拾）。"""
     _unlink(slot_path(config, server))
 
 
@@ -339,7 +298,3 @@ def clear(config: AgentConfig) -> None:
         _unlink(slot_path(config, explicit))
         if same_server(explicit, _current_server(config) or ""):
             _unlink(current_path(config))
-
-    legacy = _read(legacy_path(config))
-    if legacy is not None and (not explicit or same_server(legacy.server, explicit)):
-        _unlink(legacy_path(config))

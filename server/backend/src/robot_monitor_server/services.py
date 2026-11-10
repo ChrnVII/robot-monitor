@@ -308,7 +308,7 @@ class TaskService:
                 agent_id, CommandName.HASH_FILE, {"rel": rel}, timeout=budget
             )
         except AgentError as exc:
-            # 老版本 agent 回 unknown_command、慢盘读超时。这只是一次省掉整份上传的
+            # 文件读不了、慢盘算不完、节点中途掉线。这只是一次省掉整份上传的
             # 机会，抓不住就照常传，不能拦路。
             logger.info("pre-hash skipped for %s: %s", rel, exc)
             return None
@@ -366,7 +366,7 @@ class TaskService:
             )
             await self.db.execute(
                 "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256, stored_path,"
-                " created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (file_id, agent_id, filename, rel, size, source["sha256"], stored_path, now),
             )
             outcome = "linked"
@@ -886,8 +886,8 @@ class TaskService:
             await self._fail_upload(upload_id, ErrorCode.INTERNAL, f"落盘失败：{exc}")
             raise ApiError(500, ErrorCode.INTERNAL, f"落盘失败：{exc}") from exc
 
-        # 落盘前再判一次重。上传前那次可能没命中：老版本 agent 不支持 hash_file，
-        # 或者两个相同内容在并发上传（谁都没落库，彼此都看不见）。
+        # 落盘前再判一次重。上传前那次可能没命中：哈希超时，或者两份相同内容
+        # 在并发上传（谁都没落库，彼此都看不见）。
         rel = row["rel_path"] or row["filename"]
         size = int(row["total_size"])
 
@@ -943,7 +943,7 @@ class TaskService:
             else:
                 await conn.execute(
                     "INSERT INTO files (id, agent_id, orig_name, rel_path, size, sha256, stored_path,"
-                    " created_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+                    " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (file_id, row["agent_id"], row["filename"], rel, size, actual, stored_path, now),
                 )
             await conn.execute(
@@ -1292,11 +1292,10 @@ class TaskService:
 
         return await asyncio.to_thread(_scan)
 
-    async def soft_delete(self, file_id: str, *, actor: str = "admin") -> None:
-        """删除一个文件。**真删**：行和 blob 一起消失，没有第二次机会。
+    async def delete_file(self, file_id: str, *, actor: str = "admin") -> None:
+        """删除一个文件：行和 blob 一起消失，没有第二次机会。
 
-        想反悔只有前端那 8 秒的撤销窗口——它靠的是"还没发请求"，不是服务端
-        先存着。所以这里不需要 deleted_at，也不需要 trash 目录。
+        反悔窗口只有前端那 8 秒——它靠的是"请求还没发"，不是服务端留底。
         """
         row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))
         if row is None:
@@ -1305,20 +1304,6 @@ class TaskService:
         await self.db.execute("DELETE FROM files WHERE id = ?", (file_id,))
         await self.auth.audit(actor, "file.delete", target=file_id, detail=row["orig_name"])
         self.bus.publish("file_removed", {"file_id": file_id})
-
-    async def purge_legacy_trash(self) -> int:
-        """清空历史回收站。一次性：升级到"删除即真删"之后用不上了。
-
-        这些文件本来就是用户主动删的，B 上还有原件，所以直接清掉而不是还原——
-        还原等于把用户已经做出的决定撤销掉，还得再删一次。
-        """
-        rows = await self.db.fetchall("SELECT id FROM files WHERE deleted_at IS NOT NULL")
-        for row in rows:
-            await self.storage.purge(str(row["id"]))
-        if rows:
-            await self.db.execute("DELETE FROM files WHERE deleted_at IS NOT NULL")
-            logger.info("purged %d file(s) left in the legacy trash", len(rows))
-        return len(rows)
 
     async def storage_path_for(self, file_id: str) -> tuple[Any, Any]:
         row = await self.db.fetchone("SELECT * FROM files WHERE id = ?", (file_id,))

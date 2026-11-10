@@ -73,10 +73,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ctx = ctx
 
     await task_service.recover_after_restart()
-    # 一次性：把旧回收站里的文件清掉。删除已经改成真删，这个状态不再存在。
-    purged_trash = await task_service.purge_legacy_trash()
-    if purged_trash:
-        logger.warning("已清空历史回收站：%d 个文件（原件仍在 B 上，需要时可重新取件）", purged_trash)
     hub.start_sweeper()
     maintenance = asyncio.create_task(_maintenance(ctx), name="maintenance")
 

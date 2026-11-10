@@ -127,11 +127,9 @@ CREATE TABLE IF NOT EXISTS files (
     size        INTEGER NOT NULL,
     sha256      TEXT NOT NULL,
     stored_path TEXT NOT NULL,
-    created_at  REAL NOT NULL,
-    -- 旧回收站的标记，只在启动迁移时用来找出历史垃圾行。新代码不写也不读。
-    deleted_at  REAL
+    created_at  REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_files_created ON files(deleted_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_files_created ON files(created_at DESC);
 -- 内容判重：先按大小筛（绝大多数文件大小唯一，不必读盘算哈希），
 -- 再按 sha256 命中。没有这两条索引，每次取件都要全表扫一遍 files。
 CREATE INDEX IF NOT EXISTS idx_files_size ON files(agent_id, size);

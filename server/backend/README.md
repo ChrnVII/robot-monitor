@@ -25,7 +25,6 @@ uv run robot-monitor-server serve --reload         # 127.0.0.1:8000
 | `revoke-token <id>` | 立即吊销某台设备的 token |
 | `list-agents` | 列出节点与在线状态 |
 | `issue-token --name X` | 手工签发 token（默认走自动注册，一般用不到） |
-| `hash-password` | 兼容用：生成 Argon2 哈希（老部署的环境变量方式） |
 | `dedup [--apply]` | 找出库里同一内容的多份副本；`--apply` 用硬链接合并，释放磁盘 |
 
 ## 结构

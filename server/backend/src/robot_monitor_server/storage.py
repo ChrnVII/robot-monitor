@@ -58,11 +58,6 @@ class Storage:
         # 两字符分片目录，避免单目录十万文件
         return self.settings.files_dir / agent_id / file_id[:2] / file_id
 
-    def trash_path(self, file_id: str) -> Path:
-        if not file_id.isalnum():
-            raise StorageError(ErrorCode.INTERNAL, "invalid file id")
-        return self.settings.trash_dir / file_id
-
     # --- 容量 -----------------------------------------------------------
 
     def free_bytes(self) -> int:
@@ -205,22 +200,6 @@ class Storage:
         path = self.settings.storage_dir / stored_path
         await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 
-    async def finalize(
-        self,
-        upload_id: str,
-        agent_id: str,
-        file_id: str,
-        *,
-        expected_sha256: str | None = None,
-    ) -> str:
-        """校验并原子落盘，返回实际 sha256。
-
-        校验失败时保留 staging（便于排查到底哪一段坏了），不落盘。
-        """
-        actual = await self.verify(upload_id, expected_sha256=expected_sha256)
-        await self.commit(upload_id, agent_id, file_id)
-        return actual
-
     @staticmethod
     def _commit(part: Path, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -228,13 +207,6 @@ class Storage:
         with open(part, "rb+") as handle:
             os.fsync(handle.fileno())
         os.replace(part, destination)
-
-    # --- 旧回收站（只剩清空） ------------------------------------------
-
-    async def purge(self, file_id: str) -> None:
-        """删掉旧回收站里的 blob。只在启动迁移时用一次。"""
-        path = self.trash_path(file_id)
-        await asyncio.to_thread(lambda: path.unlink(missing_ok=True))
 
     # --- 开机清理 -------------------------------------------------------
 

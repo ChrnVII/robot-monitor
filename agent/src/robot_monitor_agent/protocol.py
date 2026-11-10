@@ -117,9 +117,9 @@ class Message(BaseModel):
     type: MessageType
     id: str = Field(default_factory=new_id)
     # command 故意是裸字符串，不是 CommandName 枚举。
-    # 原因：老版本的 B 收到一个它不认识的新命令时，必须能回 `unknown_command`，
-    # 而不是在校验阶段就解析失败、把整条连接关掉。封闭性由"分发时对照白名单"
-    # 保证——解析宽松、执行严格，这个组合才是向前兼容的。
+    # 原因：B 收到一个它不认识的新命令时，必须能回 `unknown_command`，而不是在
+    # 校验阶段就解析失败、把整条连接关掉。封闭性由"分发时对照白名单"保证——
+    # 解析宽松、执行严格，这个组合才允许两端分别升级。
     command: str | None = Field(default=None, max_length=64)
     payload: dict[str, Any] = Field(default_factory=dict)
     ok: bool | None = None

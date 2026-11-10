@@ -49,17 +49,17 @@ def test_enroll_ok_persists_credentials(tmp_path, monkeypatch):
         if request.url.path == "/api/v1/health":
             return health("inst-1")
         assert request.url.path == "/internal/enroll"
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "fba_new"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "rma_new"})
 
     install_transport(monkeypatch, handler)
 
     resolved = await_ensure(config)
 
-    assert resolved.token == "fba_new"
+    assert resolved.token == "rma_new"
     assert resolved.agent_id == "a1"
     stored = load(config)
     assert stored is not None
-    assert stored.token == "fba_new"
+    assert stored.token == "rma_new"
     # 顺手记下 A 的身份：下次它换地址时靠这个认人
     assert stored.instance_id == "inst-1"
     # 内存里也要有：否则下次轮换 token 写文件时会把 instance_id 覆盖成 null
@@ -68,7 +68,7 @@ def test_enroll_ok_persists_credentials(tmp_path, monkeypatch):
 
 def test_existing_credentials_skip_enrollment(tmp_path, monkeypatch):
     config = make_config(tmp_path)
-    save(config, Credentials(server="http://127.0.0.1:8000", token="fba_old", agent_id="a1"))
+    save(config, Credentials(server="http://127.0.0.1:8000", token="rma_old", agent_id="a1"))
 
     def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
         raise AssertionError("有凭据时不该再请求 A")
@@ -78,7 +78,7 @@ def test_existing_credentials_skip_enrollment(tmp_path, monkeypatch):
 
     resolved = await_ensure(fresh)
 
-    assert resolved.token == "fba_old"
+    assert resolved.token == "rma_old"
     assert resolved.server == "http://127.0.0.1:8000"
 
 
@@ -91,7 +91,7 @@ def test_adopts_same_server_when_only_the_address_changed(tmp_path, monkeypatch)
         AgentConfig(server="http://old.example.com", state_dir=str(tmp_path / "state")),
         Credentials(
             server="http://old.example.com",
-            token="fba_old",
+            token="rma_old",
             agent_id="id-old",
             root="/srv/share",
             name="lab-01",
@@ -107,20 +107,20 @@ def test_adopts_same_server_when_only_the_address_changed(tmp_path, monkeypatch)
             assert "authorization" not in {key.lower() for key in request.headers}
             return health("inst-1")
         posted.append(request.url.path)
-        return httpx.Response(200, json={"status": "ok", "agent_id": "id-new", "token": "fba_new"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "id-new", "token": "rma_new"})
 
     install_transport(monkeypatch, handler)
 
     resolved = await_ensure(make_config(tmp_path))
 
     assert posted == [], "同一台 A 换了地址，不该再发注册请求"
-    assert resolved.token == "fba_old"
+    assert resolved.token == "rma_old"
     assert resolved.agent_id == "id-old"
     assert resolved.name == "lab-01"
     assert resolved.instance_id == "inst-1"
 
     # 凭据已经挪到新地址；旧地址的槽删掉，同一个 token 不留两份
-    assert load(make_config(tmp_path)).token == "fba_old"
+    assert load(make_config(tmp_path)).token == "rma_old"
     old = AgentConfig(server="http://old.example.com", state_dir=str(tmp_path / "state"))
     assert load(old) is None
 
@@ -131,7 +131,7 @@ def test_enrolls_when_instance_id_differs(tmp_path, monkeypatch):
         AgentConfig(server="http://old.example.com", state_dir=str(tmp_path / "state")),
         Credentials(
             server="http://old.example.com",
-            token="fba_old",
+            token="rma_old",
             agent_id="a1",
             instance_id="inst-old",
         ),
@@ -143,16 +143,16 @@ def test_enrolls_when_instance_id_differs(tmp_path, monkeypatch):
         if request.url.path == "/api/v1/health":
             return health("inst-new")
         posted.append(request.url.path)
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "fba_new"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "rma_new"})
 
     install_transport(monkeypatch, handler)
 
     resolved = await_ensure(make_config(tmp_path))
 
     assert posted == ["/internal/enroll"]
-    assert resolved.token == "fba_new"
+    assert resolved.token == "rma_new"
     old = AgentConfig(server="http://old.example.com", state_dir=str(tmp_path / "state"))
-    assert load(old).token == "fba_old"
+    assert load(old).token == "rma_old"
 
 
 def test_enrolls_when_server_has_no_instance_id(tmp_path, monkeypatch):
@@ -161,7 +161,7 @@ def test_enrolls_when_server_has_no_instance_id(tmp_path, monkeypatch):
         AgentConfig(server="http://old.example.com", state_dir=str(tmp_path / "state")),
         Credentials(
             server="http://old.example.com",
-            token="fba_old",
+            token="rma_old",
             agent_id="a1",
             instance_id="inst-old",
         ),
@@ -173,14 +173,14 @@ def test_enrolls_when_server_has_no_instance_id(tmp_path, monkeypatch):
         if request.url.path == "/api/v1/health":
             return health(None)
         posted.append(request.url.path)
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "fba_new"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "rma_new"})
 
     install_transport(monkeypatch, handler)
 
     resolved = await_ensure(make_config(tmp_path))
 
     assert posted == ["/internal/enroll"]
-    assert resolved.token == "fba_new"
+    assert resolved.token == "rma_new"
 
 
 def test_multiple_known_servers_requires_explicit_server(tmp_path, monkeypatch):
@@ -188,11 +188,11 @@ def test_multiple_known_servers_requires_explicit_server(tmp_path, monkeypatch):
     state = str(tmp_path / "state")
     save(
         AgentConfig(server="http://a.example.com", state_dir=state),
-        Credentials(server="http://a.example.com", token="fba_a", agent_id="a1"),
+        Credentials(server="http://a.example.com", token="rma_a", agent_id="a1"),
     )
     save(
         AgentConfig(server="http://b.example.com", state_dir=state),
-        Credentials(server="http://b.example.com", token="fba_b", agent_id="b1"),
+        Credentials(server="http://b.example.com", token="rma_b", agent_id="b1"),
     )
     from robot_monitor_agent.credentials import current_path
 
@@ -222,14 +222,14 @@ def test_pending_then_approved(tmp_path, monkeypatch):
         state["get"] += 1
         if state["get"] == 1:
             return httpx.Response(200, json={"status": "pending"})
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "fba_after"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a2", "token": "rma_after"})
 
     install_transport(monkeypatch, handler)
     monkeypatch.setattr(enroll_module, "POLL_INTERVAL", 0.01)
 
     resolved = await_ensure(config)
 
-    assert resolved.token == "fba_after"
+    assert resolved.token == "rma_after"
     assert state["get"] == 2
 
 
@@ -271,7 +271,7 @@ def test_missing_root_is_reported(tmp_path, monkeypatch):
     config = AgentConfig(server="http://127.0.0.1:8000", state_dir=str(tmp_path / "state"))
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "fba_x"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "rma_x"})
 
     install_transport(monkeypatch, handler)
 
@@ -280,23 +280,23 @@ def test_missing_root_is_reported(tmp_path, monkeypatch):
 
 
 def test_rotate_updates_local_credentials(tmp_path, monkeypatch):
-    config = make_config(tmp_path, token="fba_old", agent_id="a1", instance_id="inst-1")
+    config = make_config(tmp_path, token="rma_old", agent_id="a1", instance_id="inst-1")
     save(
         config,
-        Credentials(server=config.server, token="fba_old", agent_id="a1", instance_id="inst-1"),
+        Credentials(server=config.server, token="rma_old", agent_id="a1", instance_id="inst-1"),
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "fba_rotated"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "rma_rotated"})
 
     install_transport(monkeypatch, handler)
 
     outcome = await_rotate(config)
 
     assert outcome.ok is True
-    assert outcome.token == "fba_rotated"
+    assert outcome.token == "rma_rotated"
     stored = load(config)
-    assert stored is not None and stored.token == "fba_rotated"
+    assert stored is not None and stored.token == "rma_rotated"
     # 换 token 不该把 A 的身份弄丢，否则下次它换地址就认不出来了
     assert stored.instance_id == "inst-1"
 
@@ -312,27 +312,27 @@ def test_rotate_after_enroll_keeps_instance_id(tmp_path, monkeypatch):
     def enroll_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/v1/health":
             return health("inst-1")
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "fba_enrolled"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "rma_enrolled"})
 
     install_transport(monkeypatch, enroll_handler)
     resolved = await_ensure(config)
 
     def rotate_handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "fba_rotated"})
+        return httpx.Response(200, json={"status": "ok", "agent_id": "a1", "token": "rma_rotated"})
 
     install_transport(monkeypatch, rotate_handler)
     outcome = await_rotate(resolved)
 
-    assert outcome.token == "fba_rotated"
+    assert outcome.token == "rma_rotated"
     stored = load(config)
     assert stored is not None
-    assert stored.token == "fba_rotated"
+    assert stored.token == "rma_rotated"
     assert stored.instance_id == "inst-1"
 
 
 def test_rotate_reports_why_it_was_rejected(tmp_path, monkeypatch):
     """被拒也要带原因：三种原因的处置完全不同，压成一句"无效"就只能删文件。"""
-    config = make_config(tmp_path, token="fba_old", agent_id="a1")
+    config = make_config(tmp_path, token="rma_old", agent_id="a1")
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

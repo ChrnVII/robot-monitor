@@ -14,7 +14,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from robot_monitor_server.auth import AuthService, hash_password
+from robot_monitor_server.auth import AuthService
 from robot_monitor_server.config import Settings
 from robot_monitor_server.db import Database
 from robot_monitor_server.main import create_app
@@ -22,14 +22,29 @@ from robot_monitor_server.main import create_app
 PASSWORD = "agents-admin-123"
 
 
+def _seed_password(settings: Settings, password: str = PASSWORD) -> None:
+    """密码只有数据库这一份真相，测试也不例外：先把哈希写进库再起应用。"""
+
+    async def run() -> None:
+        db = Database(settings.db_path)
+        await db.connect()
+        try:
+            await AuthService(db, settings).set_password("admin", password)
+        finally:
+            await db.close()
+
+    asyncio.run(run())
+
+
 def make_app(tmp_path, **overrides):
     settings = Settings(
         data_dir=tmp_path / "data",
         storage_dir=tmp_path / "storage",
-        admin_password_hash=hash_password(PASSWORD),
         serve_frontend=False,
         **overrides,
     )
+    settings.ensure_dirs()
+    _seed_password(settings)
     return settings, create_app(settings)
 
 

@@ -4,8 +4,7 @@
 生产环境不要依赖 .env，用 systemd 的 `Environment=` 或容器 secret。
 
 管理员密码不在这里：它存在数据库的 `admin_user` 表里，首次 `serve` 时引导设置，
-之后用 `robot-monitor-server passwd` 改。`admin_password_hash` 只是升级兼容用的回落，
-启动时会被导入数据库（见 `auth.adopt_env_password`）。
+之后用 `robot-monitor-server passwd` 改。
 """
 
 from __future__ import annotations
@@ -44,7 +43,6 @@ class Settings(BaseSettings):
 
     # --- 单用户鉴权 -----------------------------------------------------
     admin_username: str = "admin"
-    admin_password_hash: str = ""
     session_ttl_hours: int = 72
     cookie_name: str = "rm_session"
     # 本地 http 调试必须是 False；上 HTTPS 后改成 True。
@@ -100,11 +98,6 @@ class Settings(BaseSettings):
     def files_dir(self) -> Path:
         return self.storage_dir / "files"
 
-    # 旧回收站目录：只在启动迁移时清一次，之后不会再往里写
-    @property
-    def trash_dir(self) -> Path:
-        return self.storage_dir / "trash"
-
     def chunk_size_for(self, total_bytes: int) -> int:
         """按文件大小选块大小。
 
@@ -121,10 +114,6 @@ class Settings(BaseSettings):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         for directory in (self.staging_dir, self.files_dir):
             directory.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def auth_configured(self) -> bool:
-        return bool(self.admin_password_hash.strip())
 
 
 settings = Settings()
