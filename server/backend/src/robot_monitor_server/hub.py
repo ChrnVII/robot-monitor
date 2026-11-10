@@ -35,7 +35,7 @@ from .config import Settings
 from .events import EventBus
 from .protocol import CommandName, ErrorCode, Message
 
-logger = logging.getLogger("filebridge.hub")
+logger = logging.getLogger("robot-monitor.hub")
 
 # 单连接积压的指令上限。超过说明 agent 没在处理，继续堆积没有意义。
 OUTBOX_SIZE = 64

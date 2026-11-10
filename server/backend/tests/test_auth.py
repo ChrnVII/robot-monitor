@@ -14,9 +14,9 @@ import time
 
 import pytest
 
-from filebridge_server.auth import AuthService, hash_password, hash_token
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
+from robot_monitor_server.auth import AuthService, hash_password, hash_token
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
 
 PASSWORD = "correct-horse-battery"
 
@@ -120,7 +120,29 @@ async def test_agent_token_lookup_rejects_garbage(tmp_path):
     assert await auth.authenticate_agent(None) is None
     assert await auth.authenticate_agent("") is None
     assert await auth.authenticate_agent("not-a-token") is None
-    assert await auth.authenticate_agent("fba_" + "x" * 40) is None
+    assert await auth.authenticate_agent("rma_" + "x" * 40) is None
+
+    await auth.db.close()
+
+
+async def test_legacy_filebridge_token_still_authenticates(tmp_path):
+    """改名之前签发的 fba_ token 不能因为换前缀就失效——那会让在线节点全部掉线。"""
+    from robot_monitor_server.auth import hash_token
+
+    auth = await make_service(tmp_path)
+    legacy = "fba_" + "a" * 48
+    await auth.db.execute(
+        "INSERT INTO agents (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)",
+        ("ag-legacy", "old-node", hash_token(legacy), 0.0),
+    )
+
+    row = await auth.authenticate_agent(legacy)
+    assert row is not None
+    assert row["id"] == "ag-legacy"
+
+    # 新签发的仍然是新前缀
+    _, fresh = await auth.issue_agent_token("b-office")
+    assert fresh.startswith("rma_")
 
     await auth.db.close()
 
@@ -151,7 +173,7 @@ async def test_audit_log_records_actions(tmp_path):
 @pytest.mark.parametrize("password", ["short", "中文密码也可以", "x" * 200])
 def test_password_hash_roundtrip(password):
     digest = hash_password(password)
-    from filebridge_server.auth import verify_password
+    from robot_monitor_server.auth import verify_password
 
     assert verify_password(password, digest)
     assert not verify_password(password + "x", digest)
@@ -171,7 +193,7 @@ async def test_password_verification_runs_in_a_worker_thread(tmp_path, monkeypat
         threads.append(threading.current_thread())
         return True
 
-    monkeypatch.setattr("filebridge_server.auth.verify_password", spy)
+    monkeypatch.setattr("robot_monitor_server.auth.verify_password", spy)
 
     assert await auth.login("admin", PASSWORD) is not None
     assert threads and threads[0] is not threading.main_thread()

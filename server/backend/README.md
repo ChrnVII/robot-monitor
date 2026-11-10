@@ -1,4 +1,4 @@
-# filebridge-server（backend）
+# robot-monitor-server（backend）
 
 部署在 **A** 上的 FastAPI 服务：WebSocket 控制通道、分片接收、文件库、SSE，
 以及 `server/frontend/dist` 的静态托管。
@@ -7,7 +7,7 @@
 
 ```bash
 uv sync
-uv run filebridge-server serve --reload         # 127.0.0.1:8000
+uv run robot-monitor-server serve --reload         # 127.0.0.1:8000
 # 首次启动会提示设置管理员密码（存进数据库，之后用 passwd 改）
 ```
 
@@ -31,7 +31,7 @@ uv run filebridge-server serve --reload         # 127.0.0.1:8000
 ## 结构
 
 ```
-config.py     pydantic-settings，全部可用 FILEBRIDGE_ 前缀覆盖
+config.py     pydantic-settings，全部可用 ROBOT_MONITOR_ 前缀覆盖
 db.py         SQLite WAL + 单连接 + 写事务
 auth.py       C 侧会话、密码（存库）与 B 侧设备 token / 注册申请
 hub.py        连接注册表 + 单写者 outbox + pending Future

@@ -28,7 +28,7 @@ from .errors import AgentCommandError, UploadCancelled, UploadFailed
 from .protocol import ErrorCode
 from .sandbox import Sandbox, SandboxError
 
-logger = logging.getLogger("filebridge.agent.upload")
+logger = logging.getLogger("robot-monitor.agent.upload")
 
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 0.5

@@ -14,10 +14,10 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from filebridge_server.auth import AuthService, hash_password
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
-from filebridge_server.main import create_app
+from robot_monitor_server.auth import AuthService, hash_password
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
+from robot_monitor_server.main import create_app
 
 PASSWORD = "agents-admin-123"
 
@@ -225,7 +225,7 @@ def test_approve_from_web_issues_token_once(tmp_path):
 
         claimed = client.get(f"/internal/enroll/{pending_id}")
         assert claimed.status_code == 200
-        assert claimed.json()["token"].startswith("fba_")
+        assert claimed.json()["token"].startswith("rma_")
 
         # 批完之后列表里是节点，待批准清空
         agents = client.get("/api/v1/agents").json()["items"]

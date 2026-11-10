@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from filebridge_server.protocol import (
+from robot_monitor_server.protocol import (
     MAX_FRAME_BYTES,
     PROTOCOL_VERSION,
     CommandName,
@@ -29,8 +29,8 @@ from filebridge_server.protocol import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = REPO_ROOT / "contract" / "protocol-frames.json"
-AGENT_COPY = REPO_ROOT / "agent" / "src" / "filebridge_agent" / "protocol.py"
-OWN_COPY = Path(__file__).resolve().parents[1] / "src" / "filebridge_server" / "protocol.py"
+AGENT_COPY = REPO_ROOT / "agent" / "src" / "robot_monitor_agent" / "protocol.py"
+OWN_COPY = Path(__file__).resolve().parents[1] / "src" / "robot_monitor_server" / "protocol.py"
 
 
 # 单独部署一端时，仓库根的 contract/ 并不在机器上（它只是测试夹具）。

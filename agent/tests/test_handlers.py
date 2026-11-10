@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from filebridge_agent.errors import AgentCommandError
-from filebridge_agent.handlers import HandlerContext, dispatch
-from filebridge_agent.protocol import CommandName, ErrorCode
-from filebridge_agent.sandbox import Sandbox, SandboxError
+from robot_monitor_agent.errors import AgentCommandError
+from robot_monitor_agent.handlers import HandlerContext, dispatch
+from robot_monitor_agent.protocol import CommandName, ErrorCode
+from robot_monitor_agent.sandbox import Sandbox, SandboxError
 
 
 class DummyUploads:
@@ -148,8 +148,8 @@ async def test_start_upload_rejects_inconsistent_chunk_count(ctx):
 
 async def test_handler_table_matches_closed_command_enum():
     """命令枚举扩容但忘记写 handler 时，这条测试要红。"""
-    from filebridge_agent.handlers import _HANDLERS
-    from filebridge_agent.protocol import AGENT_ALLOWED_COMMANDS
+    from robot_monitor_agent.handlers import _HANDLERS
+    from robot_monitor_agent.protocol import AGENT_ALLOWED_COMMANDS
 
     assert set(_HANDLERS) == set(AGENT_ALLOWED_COMMANDS)
 
@@ -162,10 +162,10 @@ async def test_no_write_mode_open_in_agent_source():
     import pathlib
     import re
 
-    source_dir = pathlib.Path(__file__).resolve().parents[1] / "src" / "filebridge_agent"
+    source_dir = pathlib.Path(__file__).resolve().parents[1] / "src" / "robot_monitor_agent"
     write_mode = re.compile(r"""open\([^)]*,\s*["'](?:w|a|r\+|wb|ab|x)""")
 
-    # 唯一的例外：credentials.py 要写自己的凭据文件（项目内 .filebridge/，0600）。
+    # 唯一的例外：credentials.py 要写自己的凭据文件（项目内 .robot-monitor/，0600）。
     # 它写的是"自己的状态"，不是共享目录；例外名单写死在这里，多出第二个文件就红。
     allowed = {"credentials.py"}
 

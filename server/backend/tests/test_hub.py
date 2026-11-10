@@ -10,8 +10,8 @@ import asyncio
 
 import pytest
 
-from filebridge_server.hub import AgentConnection, AgentError, AgentMeta
-from filebridge_server.protocol import CommandName, ErrorCode, Message
+from robot_monitor_server.hub import AgentConnection, AgentError, AgentMeta
+from robot_monitor_server.protocol import CommandName, ErrorCode, Message
 
 
 class FakeWebSocket:

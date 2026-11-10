@@ -43,7 +43,7 @@ wheels = [
 ]
 
 [[package]]
-name = "filebridge-agent"
+name = "robot-monitor-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

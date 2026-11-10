@@ -34,8 +34,11 @@ from .db import Database
 
 _hasher = PasswordHasher()
 
-# agent token 前缀，便于在日志/配置里一眼认出这是哪种凭据
-AGENT_TOKEN_PREFIX = "fba_"
+# agent token 前缀，便于在日志/配置里一眼认出这是哪种凭据。
+# 改名前的 token 是 fba_（filebridge agent）：已经发出去的那些继续有效，
+# 新签发的一律用 rma_。校验时必须两个都认，否则升级会把在线节点全踢下线。
+AGENT_TOKEN_PREFIX = "rma_"
+LEGACY_AGENT_TOKEN_PREFIXES = ("fba_",)
 
 
 # --- 密码 ----------------------------------------------------------------
@@ -366,7 +369,9 @@ class AuthService:
 
     async def authenticate_agent(self, raw_token: str | None) -> aiosqlite.Row | None:
         """按 token 找 agent。吊销、空 token、格式不对一律返回 None。"""
-        if not raw_token or not raw_token.startswith(AGENT_TOKEN_PREFIX):
+        if not raw_token or not raw_token.startswith(
+            (AGENT_TOKEN_PREFIX, *LEGACY_AGENT_TOKEN_PREFIXES)
+        ):
             return None
         row = await self.db.fetchone("SELECT * FROM agents WHERE token_hash = ?", (hash_token(raw_token),))
         if row is None:

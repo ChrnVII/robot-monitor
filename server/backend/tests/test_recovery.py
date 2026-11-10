@@ -17,14 +17,14 @@ import time
 
 import pytest
 
-from filebridge_server.auth import AuthService
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
-from filebridge_server.errors import ApiError
-from filebridge_server.events import EventBus
-from filebridge_server.protocol import CommandName
-from filebridge_server.services import TaskService
-from filebridge_server.storage import Storage
+from robot_monitor_server.auth import AuthService
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
+from robot_monitor_server.errors import ApiError
+from robot_monitor_server.events import EventBus
+from robot_monitor_server.protocol import CommandName
+from robot_monitor_server.services import TaskService
+from robot_monitor_server.storage import Storage
 
 # 两块：300KB 的文件配 256KB 的块
 SIZE = 300 * 1024

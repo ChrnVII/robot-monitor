@@ -9,10 +9,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from filebridge_agent import enroll as enroll_module
-from filebridge_agent.config import AgentConfig, ConfigError
-from filebridge_agent.credentials import Credentials, load, save
-from filebridge_agent.enroll import EnrollError, ensure_credentials, rotate
+from robot_monitor_agent import enroll as enroll_module
+from robot_monitor_agent.config import AgentConfig, ConfigError
+from robot_monitor_agent.credentials import Credentials, load, save
+from robot_monitor_agent.enroll import EnrollError, ensure_credentials, rotate
 
 
 def make_config(tmp_path, **kwargs) -> AgentConfig:
@@ -194,7 +194,7 @@ def test_multiple_known_servers_requires_explicit_server(tmp_path, monkeypatch):
         AgentConfig(server="http://b.example.com", state_dir=state),
         Credentials(server="http://b.example.com", token="fba_b", agent_id="b1"),
     )
-    from filebridge_agent.credentials import current_path
+    from robot_monitor_agent.credentials import current_path
 
     current_path(AgentConfig(state_dir=state)).unlink()
 

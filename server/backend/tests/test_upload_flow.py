@@ -33,18 +33,18 @@ import uvicorn
 # 被拷过去，此时 agent 包并不存在。没装就整组跳过，而不是让 A 上的 pytest
 # 在 import 阶段直接失败。
 pytest.importorskip(
-    "filebridge_agent",
+    "robot_monitor_agent",
     reason="端到端测试需要 agent 项目已装入本环境：在仓库根跑 `./dev.sh sync`",
 )
 
-from filebridge_agent.client import AgentClient
-from filebridge_agent.config import AgentConfig
-from filebridge_agent.sandbox import Sandbox
+from robot_monitor_agent.client import AgentClient
+from robot_monitor_agent.config import AgentConfig
+from robot_monitor_agent.sandbox import Sandbox
 
-from filebridge_server.auth import AuthService, hash_password
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
-from filebridge_server.main import create_app
+from robot_monitor_server.auth import AuthService, hash_password
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
+from robot_monitor_server.main import create_app
 
 PASSWORD = "e2e-password-123"
 CHUNK = 256 * 1024
@@ -612,19 +612,6 @@ def test_delete_tree_removes_the_whole_directory(stack):
     # 只剩 keep/c.txt 一个 blob
     blobs = [path for path in stack.settings.files_dir.rglob("*") if path.is_file()]
     assert len(blobs) == 1
-
-
-def test_task_list_filters_by_agent(stack):
-    """顶栏选了哪台节点，任务页就只看那台。"""
-    fetch(stack, "only.txt", b"only")
-
-    mine = stack.http.get("/api/v1/tasks", params={"agent_id": stack.agent_id}).json()
-    assert mine["total"] == 1
-    assert {item["agent_id"] for item in mine["items"]} == {stack.agent_id}
-
-    other = stack.http.get("/api/v1/tasks", params={"agent_id": "someone-else"}).json()
-    assert other["total"] == 0
-    assert other["items"] == []
 
 
 def test_task_list_filters_by_agent(stack):

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import time
 
-from filebridge_server.cli import _duplicate_groups, _link_over
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
+from robot_monitor_server.cli import _duplicate_groups, _link_over
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
 
 
 def test_link_over_points_both_paths_at_one_inode(tmp_path):
@@ -76,8 +76,8 @@ async def test_duplicate_groups_orders_by_wasted_space(tmp_path):
 
 def test_shares_storage_tells_linked_from_copied(tmp_path, monkeypatch):
     """合并过的两条记录共用一个 inode；没合并过的各占一份，这才是要报的。"""
-    from filebridge_server.cli import _shares_storage
-    from filebridge_server.config import settings
+    from robot_monitor_server.cli import _shares_storage
+    from robot_monitor_server.config import settings
 
     monkeypatch.setattr(settings, "storage_dir", tmp_path)
     (tmp_path / "a").write_bytes(b"same")

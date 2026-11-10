@@ -15,7 +15,7 @@ server/frontend/.vite/
 # 运行时数据，绝不入库
 data/
 storage/
-agent/.filebridge/
+agent/.robot-monitor/
 *.db
 *.db-wal
 *.db-shm

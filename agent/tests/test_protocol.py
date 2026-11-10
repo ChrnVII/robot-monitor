@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from filebridge_agent.protocol import (
+from robot_monitor_agent.protocol import (
     MAX_FRAME_BYTES,
     PROTOCOL_VERSION,
     CommandName,
@@ -23,8 +23,8 @@ from filebridge_agent.protocol import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "contract" / "protocol-frames.json"
-SERVER_COPY = REPO_ROOT / "server" / "backend" / "src" / "filebridge_server" / "protocol.py"
-OWN_COPY = Path(__file__).resolve().parents[1] / "src" / "filebridge_agent" / "protocol.py"
+SERVER_COPY = REPO_ROOT / "server" / "backend" / "src" / "robot_monitor_server" / "protocol.py"
+OWN_COPY = Path(__file__).resolve().parents[1] / "src" / "robot_monitor_agent" / "protocol.py"
 
 
 if not CONTRACT_PATH.is_file():

@@ -31,7 +31,7 @@ from .protocol import (
     ProtocolError,
 )
 
-logger = logging.getLogger("filebridge.ws")
+logger = logging.getLogger("robot-monitor.ws")
 
 router = APIRouter()
 

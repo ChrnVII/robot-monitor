@@ -2,7 +2,7 @@
 
 日常只需要一条命令：
 
-    filebridge-server serve        # 首次会引导设置管理员密码
+    robot-monitor-server serve        # 首次会引导设置管理员密码
 
 其余命令都是"出了情况才用"：`passwd` 改密码、`pending` / `approve` 处理新设备、
 `revoke-token` 吊销、`list-agents` 查看、`dedup` 清理历史重复文件。
@@ -31,14 +31,14 @@ from .db import Database
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="filebridge-server",
-        description="FileBridge A 端服务：WebSocket 控制通道 + 文件库",
+        prog="robot-monitor-server",
+        description="Robot Monitor A 端服务：WebSocket 控制通道 + 文件库",
     )
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     sub = parser.add_subparsers(dest="command")
 
     serve = sub.add_parser("serve", help="启动服务（默认命令）")
-    serve.add_argument("--host", default=None, help="监听地址，默认取 FILEBRIDGE_HOST")
+    serve.add_argument("--host", default=None, help="监听地址，默认取 ROBOT_MONITOR_HOST")
     serve.add_argument("--port", type=int, default=None, help="端口，默认 8000")
     serve.add_argument("--reload", action="store_true", help="开发模式：改代码自动重启")
 
@@ -122,7 +122,7 @@ def run_server(*, host: str | None, port: int | None, reload: bool) -> None:
     asyncio.run(_ensure_admin_password())
 
     uvicorn.run(
-        "filebridge_server.main:app",
+        "robot_monitor_server.main:app",
         host=settings.host,
         port=settings.port,
         workers=1,
@@ -149,7 +149,7 @@ def print_hash_password(password: str | None) -> None:
     print(digest)
     print(
         "\n把它写进环境变量（注意单引号，避免 $ 被 shell 展开）：\n"
-        f"  FILEBRIDGE_ADMIN_PASSWORD_HASH='{digest}'",
+        f"  ROBOT_MONITOR_ADMIN_PASSWORD_HASH='{digest}'",
         file=sys.stderr,
     )
 
@@ -157,7 +157,7 @@ def print_hash_password(password: str | None) -> None:
 async def _with_db(action: Any) -> Any:
     settings.ensure_dirs()
     # 把实际用的库路径打出来。这只为防一个具体的坑：在 systemd 部署里跑 CLI 却
-    # 忘了加载 /etc/filebridge/filebridge.env，配置会退化成相对路径，于是悄悄
+    # 忘了加载 /etc/robot-monitor/robot-monitor.env，配置会退化成相对路径，于是悄悄
     # 在当前目录新建一个空库——token 签进了错的地方，表现是"agent 一直连不上，
     # 但 list-agents 里明明有它"。
     print(f"[db] {settings.db_path.resolve()}", file=sys.stderr)
@@ -177,7 +177,7 @@ async def _issue_token(name: str, hostname: str | None, os_name: str | None) -> 
         print(
             "\ntoken 只显示这一次，库里只存 sha256，丢了只能重新签发。\n"
             "在 B 上配置：\n"
-            f"  filebridge-agent --server https://<你的域名> --token {token} --root /path/to/share",
+            f"  robot-monitor-agent --server https://<你的域名> --token {token} --root /path/to/share",
             file=sys.stderr,
         )
 
@@ -355,8 +355,8 @@ async def _ensure_admin_password() -> None:
     async def action(db: Database, auth: AuthService) -> None:
         if await auth.adopt_env_password():
             print(
-                "已把 FILEBRIDGE_ADMIN_PASSWORD_HASH 导入数据库；"
-                "以后改密码用 `filebridge-server passwd`，不需要再动环境变量。",
+                "已把 ROBOT_MONITOR_ADMIN_PASSWORD_HASH 导入数据库；"
+                "以后改密码用 `robot-monitor-server passwd`，不需要再动环境变量。",
                 file=sys.stderr,
             )
             return
@@ -368,7 +368,7 @@ async def _ensure_admin_password() -> None:
             print("\n还没有管理员密码，现在设置（只需一次）：", file=sys.stderr)
             await auth.set_password(settings.admin_username, _prompt_new_password())
             print(
-                "✓ 已写入数据库。以后改密码：filebridge-server passwd\n", file=sys.stderr
+                "✓ 已写入数据库。以后改密码：robot-monitor-server passwd\n", file=sys.stderr
             )
             return
 
@@ -383,7 +383,7 @@ async def _ensure_admin_password() -> None:
             pass
         print(
             f"已生成初始管理员密码，写在 {path}\n"
-            "登录一次后该文件会自动删除；也可以 `filebridge-server passwd` 立即改掉。",
+            "登录一次后该文件会自动删除；也可以 `robot-monitor-server passwd` 立即改掉。",
             file=sys.stderr,
         )
 
@@ -427,7 +427,7 @@ async def _pending() -> None:
                 f"{row['id'][:10]:<12} {(row['hostname'] or '-'):<22} "
                 f"{(row['root_path'] or '-'):<26} {(row['remote_ip'] or '-'):<16} {created}"
             )
-        print("\n批准：filebridge-server approve <ID>    拒绝：... reject <ID>")
+        print("\n批准：robot-monitor-server approve <ID>    拒绝：... reject <ID>")
 
     await _with_db(action)
 

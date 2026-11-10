@@ -1,26 +1,26 @@
 [Unit]
-Description=FileBridge server (A)
-Documentation=https://github.com/your-org/filebridge
+Description=Robot Monitor server (A)
+Documentation=https://github.com/your-org/robot-monitor
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=filebridge
-Group=filebridge
-WorkingDirectory=/opt/filebridge/backend
-EnvironmentFile=/etc/filebridge/filebridge.env
+User=robot-monitor
+Group=robot-monitor
+WorkingDirectory=/opt/robot-monitor/backend
+EnvironmentFile=/etc/robot-monitor/robot-monitor.env
 
 # workers 只能是 1：连接注册表在进程内存里，多 worker 会让"节点在线但指令全超时"。
 # 这个参数不要改成 --workers N，要扩就先换 Redis pub/sub。
-ExecStart=/opt/filebridge/backend/.venv/bin/filebridge-server serve --host 127.0.0.1 --port 8000
+ExecStart=/opt/robot-monitor/backend/.venv/bin/robot-monitor-server serve --host 127.0.0.1 --port 8000
 
 Restart=always
 RestartSec=3
 KillSignal=SIGTERM
 TimeoutStopSec=20
 
-# 沙箱化：只允许写 /var/lib/filebridge
+# 沙箱化：只允许写 /var/lib/robot-monitor
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -28,7 +28,7 @@ ProtectHome=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-ReadWritePaths=/var/lib/filebridge
+ReadWritePaths=/var/lib/robot-monitor
 LimitNOFILE=65535
 
 [Install]

@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from filebridge_server.config import Settings
-from filebridge_server.main import create_app
-from filebridge_server.protocol import PROTOCOL_VERSION
+from robot_monitor_server.config import Settings
+from robot_monitor_server.main import create_app
+from robot_monitor_server.protocol import PROTOCOL_VERSION
 
 
 def make_client(tmp_path) -> TestClient:

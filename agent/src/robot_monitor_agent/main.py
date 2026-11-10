@@ -1,6 +1,6 @@
 """agent 命令行入口。
 
-    filebridge-agent --server https://files.example.com --root /srv/share
+    robot-monitor-agent --server https://files.example.com --root /srv/share
 
 首次会自动向 A 注册并把凭据存到本地（0600），之后连参数都可以省。
 
@@ -36,7 +36,7 @@ def require_linux(platform_name: str | None = None) -> None:
     if name == "linux":
         return
     print(
-        f"FileBridge agent 只支持 Linux，当前平台是 {name}。\n"
+        f"Robot Monitor agent 只支持 Linux，当前平台是 {name}。\n"
         "A 与 B 的目标平台都是 Linux；非 Linux 上的行为不做保证。\n"
         "（单元测试与端到端测试不走这个入口，可跨平台运行。）",
         file=sys.stderr,
@@ -46,8 +46,8 @@ def require_linux(platform_name: str | None = None) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="filebridge-agent",
-        description="把本机目录通过 FileBridge 共享给 A（只读）",
+        prog="robot-monitor-agent",
+        description="把本机目录通过 Robot Monitor 共享给 A（只读）",
     )
     parser.add_argument("--server", default=None, help="A 的地址，https:// 或 wss:// 均可")
     parser.add_argument("--token", default=None, help="设备 token（server 端 issue-token 签发）")
@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--state-dir",
         default=None,
-        help="凭据文件目录，默认项目内 .filebridge/",
+        help="凭据文件目录，默认项目内 .robot-monitor/",
     )
     parser.add_argument("--log-level", default=None, help="DEBUG/INFO/WARNING")
     parser.add_argument(
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
 
     setup_logging(config.log_level, config.log_dir)
-    logger = logging.getLogger("filebridge.agent")
+    logger = logging.getLogger("robot-monitor.agent")
 
     try:
         asyncio.run(_run(config))
@@ -128,7 +128,7 @@ async def _run(config: AgentConfig) -> None:
     config = await ensure_credentials(config)
     sandbox = Sandbox(config.root)
 
-    logger = logging.getLogger("filebridge.agent")
+    logger = logging.getLogger("robot-monitor.agent")
     logger.info(
         "共享目录 %s，连接 %s（HTTP %s）", sandbox.root, config.ws_url, config.http_base
     )

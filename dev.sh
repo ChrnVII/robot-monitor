@@ -32,11 +32,11 @@ case "$command" in
 
   serve|backend)
     # 生产与开发都用同一个入口；--reload 只在开发时加
-    run server/backend uv run filebridge-server serve "$@"
+    run server/backend uv run robot-monitor-server serve "$@"
     ;;
 
   agent)
-    run agent uv run filebridge-agent "$@"
+    run agent uv run robot-monitor-agent "$@"
     ;;
 
   web|frontend)
@@ -65,35 +65,35 @@ case "$command" in
     ;;
 
   passwd)
-    run server/backend uv run filebridge-server passwd
+    run server/backend uv run robot-monitor-server passwd
     ;;
 
   pending)
-    run server/backend uv run filebridge-server pending
+    run server/backend uv run robot-monitor-server pending
     ;;
 
   approve)
-    run server/backend uv run filebridge-server approve "$@"
+    run server/backend uv run robot-monitor-server approve "$@"
     ;;
 
   reject)
-    run server/backend uv run filebridge-server reject "$@"
+    run server/backend uv run robot-monitor-server reject "$@"
     ;;
 
   hash-password)
-    run server/backend uv run filebridge-server hash-password "$@"
+    run server/backend uv run robot-monitor-server hash-password "$@"
     ;;
 
   issue-token)
-    run server/backend uv run filebridge-server issue-token "$@"
+    run server/backend uv run robot-monitor-server issue-token "$@"
     ;;
 
   revoke-token)
-    run server/backend uv run filebridge-server revoke-token "$@"
+    run server/backend uv run robot-monitor-server revoke-token "$@"
     ;;
 
   list-agents)
-    run server/backend uv run filebridge-server list-agents
+    run server/backend uv run robot-monitor-server list-agents
     ;;
 
   help|*)

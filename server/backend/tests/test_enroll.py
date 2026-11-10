@@ -12,10 +12,10 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from filebridge_server.auth import AuthService, hash_password
-from filebridge_server.config import Settings
-from filebridge_server.db import Database
-from filebridge_server.main import create_app
+from robot_monitor_server.auth import AuthService, hash_password
+from robot_monitor_server.config import Settings
+from robot_monitor_server.db import Database
+from robot_monitor_server.main import create_app
 
 PASSWORD = "enroll-test-123"
 
@@ -76,7 +76,7 @@ def test_default_policy_requires_approval_even_for_the_first_device(tmp_path):
         pending_id = response.json()["pending_id"]
         assert approve(settings, pending_id) is True
         token = client.get(f"/internal/enroll/{pending_id}").json()["token"]
-        assert token.startswith("fba_")
+        assert token.startswith("rma_")
 
     assert authenticate(settings, token)
 
@@ -88,7 +88,7 @@ def test_first_device_enrolls_without_approval(tmp_path):
 
         assert response.status_code == 200, response.text
         body = response.json()
-        assert body["token"].startswith("fba_")
+        assert body["token"].startswith("rma_")
         assert body["agent_id"]
 
     assert authenticate(settings, body["token"])
@@ -129,7 +129,7 @@ def test_closed_policy_requires_approval_even_for_the_first(tmp_path):
 
         claimed = client.get(f"/internal/enroll/{pending_id}")
         assert claimed.status_code == 200
-        assert claimed.json()["token"].startswith("fba_")
+        assert claimed.json()["token"].startswith("rma_")
 
 
 def test_approved_request_can_be_claimed_only_once(tmp_path):
@@ -142,7 +142,7 @@ def test_approved_request_can_be_claimed_only_once(tmp_path):
 
         first = client.get(f"/internal/enroll/{pending_id}")
         assert first.status_code == 200
-        assert first.json()["token"].startswith("fba_")
+        assert first.json()["token"].startswith("rma_")
 
         # 再来一次就不给了——否则任何知道 pending_id 的人都能拿到 token
         second = client.get(f"/internal/enroll/{pending_id}")
@@ -183,7 +183,7 @@ def test_pending_request_never_stores_the_token(tmp_path):
     rows = asyncio.run(dump())
     assert any(row["id"] == pending_id for row in rows)
     for row in rows:
-        assert not any("fba_" in str(value) for value in row.values())
+        assert not any("rma_" in str(value) for value in row.values())
 
 
 def test_rotate_with_old_token(tmp_path):
@@ -211,7 +211,7 @@ def test_rotate_with_invalid_token_is_rejected(tmp_path):
 
         response = client.post(
             "/internal/enroll",
-            json={"agent_id": first["agent_id"], "old_token": "fba_not-a-real-token"},
+            json={"agent_id": first["agent_id"], "old_token": "rma_not-a-real-token"},
         )
 
         assert response.status_code == 401
@@ -268,7 +268,7 @@ def test_rotate_reports_unknown_agent(tmp_path):
     _settings, app = make_app(tmp_path, enroll_policy="open")
     with TestClient(app) as client:
         response = client.post(
-            "/internal/enroll", json={"agent_id": "not-a-real-id", "old_token": "fba_nope"}
+            "/internal/enroll", json={"agent_id": "not-a-real-id", "old_token": "rma_nope"}
         )
 
     assert response.status_code == 401
@@ -282,7 +282,7 @@ def test_rotate_reports_token_mismatch(tmp_path):
         agent = _token_of(client)
         response = client.post(
             "/internal/enroll",
-            json={"agent_id": agent["agent_id"], "old_token": "fba_this_is_not_the_one"},
+            json={"agent_id": agent["agent_id"], "old_token": "rma_this_is_not_the_one"},
         )
 
     assert response.status_code == 401
@@ -316,4 +316,4 @@ def test_rotate_still_works_for_a_healthy_node(tmp_path):
         )
 
     assert response.status_code == 200
-    assert response.json()["token"].startswith("fba_")
+    assert response.json()["token"].startswith("rma_")

@@ -1,10 +1,10 @@
 """服务端配置。
 
-全部可用环境变量覆盖，前缀 `FILEBRIDGE_`，例如 `FILEBRIDGE_PORT=9000`。
+全部可用环境变量覆盖，前缀 `ROBOT_MONITOR_`，例如 `ROBOT_MONITOR_PORT=9000`。
 生产环境不要依赖 .env，用 systemd 的 `Environment=` 或容器 secret。
 
 管理员密码不在这里：它存在数据库的 `admin_user` 表里，首次 `serve` 时引导设置，
-之后用 `filebridge-server passwd` 改。`admin_password_hash` 只是升级兼容用的回落，
+之后用 `robot-monitor-server passwd` 改。`admin_password_hash` 只是升级兼容用的回落，
 启动时会被导入数据库（见 `auth.adopt_env_password`）。
 """
 
@@ -15,13 +15,13 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# server/backend/src/filebridge_server/config.py -> server/
+# server/backend/src/robot_monitor_server/config.py -> server/
 _SERVER_ROOT = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="FILEBRIDGE_",
+        env_prefix="ROBOT_MONITOR_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("storage")
 
     # 前端构建产物。默认指向仓库内 server/frontend/dist，
-    # 安装成 wheel 部署时用 FILEBRIDGE_FRONTEND_DIR 指到实际位置。
+    # 安装成 wheel 部署时用 ROBOT_MONITOR_FRONTEND_DIR 指到实际位置。
     frontend_dir: Path = _SERVER_ROOT / "frontend" / "dist"
     serve_frontend: bool = True
 
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password_hash: str = ""
     session_ttl_hours: int = 72
-    cookie_name: str = "fb_session"
+    cookie_name: str = "rm_session"
     # 本地 http 调试必须是 False；上 HTTPS 后改成 True。
     cookie_secure: bool = False
 
@@ -90,7 +90,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "filebridge.db"
+        return self.data_dir / "robot-monitor.db"
 
     @property
     def staging_dir(self) -> Path:

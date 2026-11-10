@@ -3,7 +3,7 @@ import { AgentsApi } from '../api/client'
 
 // 顶栏那个"节点"下拉框的唯一状态源。
 // 与节点强相关的页面（取件、任务，以及以后的状态页）都从这里读，切一次全局生效。
-const STORAGE_KEY = 'fb:device'
+const STORAGE_KEY = 'rm:device'
 
 function readStored() {
   try {

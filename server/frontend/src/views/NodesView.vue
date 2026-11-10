@@ -230,10 +230,10 @@ onUnmounted(stopWatching)
               它会先出现在上面的「待批准接入」里。这里不需要做任何配置。
             </p>
             <pre class="codeblock"># B 端
-filebridge-agent --server https://你的域名 --root /srv/share
+robot-monitor-agent --server https://你的域名 --root /srv/share
 
 # 也可以手工签发（跳过注册审批）
-filebridge-server issue-token --name b-office</pre>
+robot-monitor-server issue-token --name b-office</pre>
           </el-empty>
         </div>
       </div>

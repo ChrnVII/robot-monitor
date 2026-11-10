@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from filebridge_agent.config import AgentConfig, ConfigError, load_config
+from robot_monitor_agent.config import AgentConfig, ConfigError, load_config
 
 
 @pytest.mark.parametrize(
@@ -67,8 +67,8 @@ def test_load_from_toml_and_env(tmp_path, monkeypatch):
     assert config.server.endswith("from-file.example.com")
     assert config.max_concurrent_uploads == 2
 
-    monkeypatch.setenv("FILEBRIDGE_AGENT_TOKEN", "from-env")
-    monkeypatch.setenv("FILEBRIDGE_AGENT_HEARTBEAT_INTERVAL", "5")
+    monkeypatch.setenv("ROBOT_MONITOR_AGENT_TOKEN", "from-env")
+    monkeypatch.setenv("ROBOT_MONITOR_AGENT_HEARTBEAT_INTERVAL", "5")
     config = load_config(str(config_file))
     assert config.token == "from-env"
     assert config.heartbeat_interval == 5.0

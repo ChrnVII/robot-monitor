@@ -11,9 +11,9 @@ import os
 
 import pytest
 
-from filebridge_server.config import Settings
-from filebridge_server.protocol import ErrorCode
-from filebridge_server.storage import Storage, StorageError
+from robot_monitor_server.config import Settings
+from robot_monitor_server.protocol import ErrorCode
+from robot_monitor_server.storage import Storage, StorageError
 
 PAYLOAD = bytes(range(256)) * 8192          # 2 MiB
 CHUNK = 64 * 1024

@@ -12,7 +12,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      window.dispatchEvent(new CustomEvent('fb:unauthorized'))
+      window.dispatchEvent(new CustomEvent('rm:unauthorized'))
     }
     return Promise.reject(error)
   }

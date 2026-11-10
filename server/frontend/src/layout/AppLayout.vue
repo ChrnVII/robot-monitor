@@ -87,10 +87,10 @@ onUnmounted(() => {
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">FB</span>
+        <span class="brand-mark">RM</span>
         <span>
-          FileBridge
-          <span class="brand-sub">内网取件通道</span>
+          Robot Monitor
+          <span class="brand-sub">内网设备通道</span>
         </span>
       </div>
 

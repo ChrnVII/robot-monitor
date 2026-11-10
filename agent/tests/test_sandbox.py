@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from filebridge_agent import Sandbox, SandboxError, is_within
+from robot_monitor_agent import Sandbox, SandboxError, is_within
 
 
 @pytest.fixture()

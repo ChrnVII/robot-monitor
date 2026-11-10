@@ -38,7 +38,7 @@ from .paths import basename_of, normalize_client_path
 from .protocol import CommandName, ErrorCode
 from .storage import Storage, StorageError
 
-logger = logging.getLogger("filebridge.tasks")
+logger = logging.getLogger("robot-monitor.tasks")
 
 # 任务状态机
 PENDING = "pending"

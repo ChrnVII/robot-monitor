@@ -10,8 +10,8 @@ import json
 import os
 import pathlib
 
-from filebridge_agent.config import AgentConfig
-from filebridge_agent.credentials import (
+from robot_monitor_agent.config import AgentConfig
+from robot_monitor_agent.credentials import (
     Credentials,
     clear,
     current_path,
@@ -216,27 +216,27 @@ def test_corrupted_legacy_file_is_left_alone(tmp_path):
 
 
 def test_state_dir_env_overrides_default(tmp_path, monkeypatch):
-    monkeypatch.setenv("FILEBRIDGE_AGENT_STATE_DIR", str(tmp_path / "custom"))
+    monkeypatch.setenv("ROBOT_MONITOR_AGENT_STATE_DIR", str(tmp_path / "custom"))
     assert default_state_dir() == tmp_path / "custom"
 
 
 def test_default_lands_in_project_dir():
-    """默认凭据目录在项目内（agent/.filebridge/），由 .gitignore 挡住版本库。"""
-    import filebridge_agent.credentials as credentials_module
+    """默认凭据目录在项目内（agent/.robot-monitor/），由 .gitignore 挡住版本库。"""
+    import robot_monitor_agent.credentials as credentials_module
 
     project_root = pathlib.Path(credentials_module.__file__).resolve().parents[2]
-    assert default_state_dir() == project_root / ".filebridge"
+    assert default_state_dir() == project_root / ".robot-monitor"
 
 
 def test_installed_without_project_falls_back_to_xdg(tmp_path, monkeypatch):
     """wheel 安装后包在 site-packages 里，向上找不到 pyproject.toml，回落 XDG。"""
-    import filebridge_agent.credentials as credentials_module
+    import robot_monitor_agent.credentials as credentials_module
 
-    monkeypatch.delenv("FILEBRIDGE_AGENT_STATE_DIR", raising=False)
+    monkeypatch.delenv("ROBOT_MONITOR_AGENT_STATE_DIR", raising=False)
     monkeypatch.setattr(
         credentials_module,
         "__file__",
-        str(tmp_path / "lib" / "site-packages" / "filebridge_agent" / "credentials.py"),
+        str(tmp_path / "lib" / "site-packages" / "robot_monitor_agent" / "credentials.py"),
     )
 
-    assert default_state_dir() == pathlib.Path.home() / ".local" / "state" / "filebridge"
+    assert default_state_dir() == pathlib.Path.home() / ".local" / "state" / "robot-monitor"

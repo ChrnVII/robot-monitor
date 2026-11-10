@@ -36,7 +36,7 @@ from .services import TaskService
 from .storage import Storage
 from .ws import router as ws_router
 
-logger = logging.getLogger("filebridge.server")
+logger = logging.getLogger("robot-monitor.server")
 
 MAINTENANCE_INTERVAL = 60.0
 
@@ -83,10 +83,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not await auth.password_configured():
         logger.warning(
             "还没有设置管理员密码，网页端无法登录。"
-            "用 `filebridge-server passwd` 设置（或用 `serve` 启动，它会引导）。"
+            "用 `robot-monitor-server passwd` 设置（或用 `serve` 启动，它会引导）。"
         )
     logger.info(
-        "filebridge %s ready: storage=%s data=%s frontend=%s",
+        "robot-monitor %s ready: storage=%s data=%s frontend=%s",
         __version__,
         cfg.storage_dir.resolve(),
         cfg.data_dir.resolve(),
@@ -133,7 +133,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
     cfg = config or settings
 
     app = FastAPI(
-        title="FileBridge",
+        title="Robot Monitor",
         version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs",

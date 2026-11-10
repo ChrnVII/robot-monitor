@@ -6,7 +6,7 @@
 布局：
 
 ```
-.filebridge/
+.robot-monitor/
   agents/
     files.example.com-a1b2c3d4.json     # 每个 A 一份，内容就是原来那份 agent.json
     backup.lan:8443-9f8e7d6c.json
@@ -29,10 +29,10 @@
 
 文件权限 0600，目录 0700 —— 它们等价于一份长期口令，不能让同组用户读到。
 
-位置：`$FILEBRIDGE_AGENT_STATE_DIR` > 项目内 `.filebridge/` >
-`~/.local/state/filebridge`（wheel 安装、找不到项目根时的回落）。
+位置：`$ROBOT_MONITOR_AGENT_STATE_DIR` > 项目内 `.robot-monitor/` >
+`~/.local/state/robot-monitor`（wheel 安装、找不到项目根时的回落）。
 
-按用户要求与代码放在一起（agent/.filebridge/），由 .gitignore 挡住版本库；
+按用户要求与代码放在一起（agent/.robot-monitor/），由 .gitignore 挡住版本库；
 代价是 rsync / 备份 / 重装项目目录时要记得绕开它。这是有意的选择：
 这个项目就两台自己的机器，目录不会被同步工具搬运。
 """
@@ -49,7 +49,7 @@ from pathlib import Path
 
 from .config import AgentConfig, ConfigError
 
-logger = logging.getLogger("filebridge.agent.state")
+logger = logging.getLogger("robot-monitor.agent.state")
 
 SLOTS_DIRNAME = "agents"
 CURRENT_FILENAME = "current"
@@ -74,19 +74,19 @@ class Credentials:
 
 
 def default_state_dir() -> Path:
-    explicit = os.environ.get("FILEBRIDGE_AGENT_STATE_DIR")
+    explicit = os.environ.get("ROBOT_MONITOR_AGENT_STATE_DIR")
     if explicit:
         return Path(explicit).expanduser()
     return _project_state_dir()
 
 
 def _project_state_dir() -> Path:
-    """项目内的 .filebridge/。找不到项目根（wheel 安装）时回落到 ~/.local/state。"""
+    """项目内的 .robot-monitor/。找不到项目根（wheel 安装）时回落到 ~/.local/state。"""
     here = Path(__file__).resolve()
     for parent in here.parents[:6]:
         if (parent / "pyproject.toml").is_file():
-            return parent / ".filebridge"
-    return Path.home() / ".local" / "state" / "filebridge"
+            return parent / ".robot-monitor"
+    return Path.home() / ".local" / "state" / "robot-monitor"
 
 
 def store_dir(config: AgentConfig) -> Path:

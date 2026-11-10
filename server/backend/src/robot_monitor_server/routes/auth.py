@@ -53,7 +53,7 @@ async def login(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "code": ErrorCode.INTERNAL.value,
-                "message": "服务端还没有设置管理员密码，请先运行 filebridge-server passwd",
+                "message": "服务端还没有设置管理员密码，请先运行 robot-monitor-server passwd",
             },
         )
 

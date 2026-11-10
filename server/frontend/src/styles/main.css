@@ -1,58 +1,58 @@
 /* ==========================================================================
-   FileBridge · 视觉基础
+   Robot Monitor · 视觉基础
    一句话原则：冷灰打底、白色浮起、蓝色只用来指路。
    颜色只在这一个文件里定义，页面里不写死色值（Element Plus 的变量也在这里改）。
    ========================================================================== */
 
 :root {
   /* 底色与描边 */
-  --fb-bg: #f1f4f9;
-  --fb-panel: #ffffff;
-  --fb-panel-soft: #fbfcff;
-  --fb-border: #e5e9f2;
-  --fb-border-strong: #d5dce9;
-  --fb-hover: #f5f8fd;
+  --rm-bg: #f1f4f9;
+  --rm-panel: #ffffff;
+  --rm-panel-soft: #fbfcff;
+  --rm-border: #e5e9f2;
+  --rm-border-strong: #d5dce9;
+  --rm-hover: #f5f8fd;
 
   /* 文字 */
-  --fb-text: #141a26;
-  --fb-text-muted: #5f6b7e;
-  --fb-text-faint: #949fb1;
+  --rm-text: #141a26;
+  --rm-text-muted: #5f6b7e;
+  --rm-text-faint: #949fb1;
 
   /* 主色：一个蓝负责操作，一个紫只出现在渐变里撑住品牌感 */
-  --fb-accent: #2f6beb;
-  --fb-accent-hover: #2559cc;
-  --fb-accent-soft: #eef3ff;
-  --fb-accent-line: #cddcfc;
-  --fb-violet: #7b5cf5;
-  --fb-cyan: #35a8c8;
+  --rm-accent: #2f6beb;
+  --rm-accent-hover: #2559cc;
+  --rm-accent-soft: #eef3ff;
+  --rm-accent-line: #cddcfc;
+  --rm-violet: #7b5cf5;
+  --rm-cyan: #35a8c8;
 
   /* 状态 */
-  --fb-success: #12a150;
-  --fb-success-soft: rgba(18, 161, 80, 0.12);
-  --fb-warning: #d98511;
-  --fb-danger: #e0473f;
+  --rm-success: #12a150;
+  --rm-success-soft: rgba(18, 161, 80, 0.12);
+  --rm-warning: #d98511;
+  --rm-danger: #e0473f;
 
   /* 形状与阴影 */
-  --fb-radius: 16px;
-  --fb-radius-sm: 10px;
-  --fb-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --fb-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 32px -16px rgba(16, 24, 40, 0.18);
-  --fb-shadow-lg: 0 32px 70px -28px rgba(23, 37, 84, 0.3);
-  --fb-ring: 0 0 0 3px rgba(47, 107, 235, 0.14);
+  --rm-radius: 16px;
+  --rm-radius-sm: 10px;
+  --rm-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --rm-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 32px -16px rgba(16, 24, 40, 0.18);
+  --rm-shadow-lg: 0 32px 70px -28px rgba(23, 37, 84, 0.3);
+  --rm-ring: 0 0 0 3px rgba(47, 107, 235, 0.14);
 
-  --fb-tree-line: #dbe1ec;
+  --rm-tree-line: #dbe1ec;
 
-  --fb-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+  --rm-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', 'Helvetica Neue', sans-serif;
-  --fb-mono: 'SFMono-Regular', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  --rm-mono: 'SFMono-Regular', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
-  font-family: var(--fb-font);
+  font-family: var(--rm-font);
   color-scheme: light;
 }
 
 /* --- Element Plus 变量对齐：让组件跟站点的蓝、圆角、字号是同一套 --- */
 :root {
-  --el-font-family: var(--fb-font);
+  --el-font-family: var(--rm-font);
   --el-color-primary: #2f6beb;
   --el-color-primary-light-3: #6d94f2;
   --el-color-primary-light-5: #9ab5f6;
@@ -75,7 +75,7 @@
   --el-border-radius-base: 8px;
   --el-border-radius-small: 6px;
   --el-font-size-base: 14px;
-  --el-box-shadow-light: var(--fb-shadow);
+  --el-box-shadow-light: var(--rm-shadow);
 }
 
 * {
@@ -93,15 +93,15 @@ body {
   background:
     radial-gradient(1100px 520px at 8% -12%, #e9f0ff 0%, transparent 58%),
     radial-gradient(900px 460px at 102% -6%, #f2ecff 0%, transparent 52%),
-    var(--fb-bg);
+    var(--rm-bg);
   background-attachment: fixed;
-  color: var(--fb-text);
+  color: var(--rm-text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 a {
-  color: var(--fb-accent);
+  color: var(--rm-accent);
   text-decoration: none;
 }
 
@@ -156,7 +156,7 @@ a {
   width: 232px;
   flex: 0 0 232px;
   background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
-  border-right: 1px solid var(--fb-border);
+  border-right: 1px solid var(--rm-border);
   display: flex;
   flex-direction: column;
   padding: 22px 14px 18px;
@@ -197,7 +197,7 @@ a {
   font-size: 11.5px;
   font-weight: 400;
   letter-spacing: 0.02em;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .sidebar nav {
@@ -212,7 +212,7 @@ a {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   text-transform: uppercase;
 }
 
@@ -223,7 +223,7 @@ a {
   gap: 10px;
   padding: 9px 12px;
   border-radius: 10px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 14px;
   transition: background 0.18s ease, color 0.18s ease;
 }
@@ -234,13 +234,13 @@ a {
 }
 
 .nav-item:hover {
-  background: var(--fb-hover);
-  color: var(--fb-text);
+  background: var(--rm-hover);
+  color: var(--rm-text);
 }
 
 .nav-item.active {
   background: linear-gradient(90deg, rgba(47, 107, 235, 0.1), rgba(123, 92, 245, 0.05));
-  color: var(--fb-accent);
+  color: var(--rm-accent);
   font-weight: 600;
 }
 
@@ -264,7 +264,7 @@ a {
 @keyframes fb-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 3px var(--fb-success-soft);
+    box-shadow: 0 0 0 3px var(--rm-success-soft);
   }
   50% {
     box-shadow: 0 0 0 6px rgba(18, 161, 80, 0.06);
@@ -311,7 +311,7 @@ a {
   gap: 7px;
   padding: 8px 13px;
   border-radius: 9px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 14px;
   white-space: nowrap;
   transition: background 0.16s ease, color 0.16s ease;
@@ -323,13 +323,13 @@ a {
 }
 
 .tab:hover {
-  background: var(--fb-hover);
-  color: var(--fb-text);
+  background: var(--rm-hover);
+  color: var(--rm-text);
 }
 
 .tab.active {
-  background: var(--fb-accent-soft);
-  color: var(--fb-accent);
+  background: var(--rm-accent-soft);
+  color: var(--rm-accent);
   font-weight: 600;
 }
 
@@ -354,7 +354,7 @@ a {
 
 .device-label {
   font-size: 12.5px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .device-dot {
@@ -366,8 +366,8 @@ a {
 }
 
 .device-dot.online {
-  background: var(--fb-success);
-  box-shadow: 0 0 0 3px var(--fb-success-soft);
+  background: var(--rm-success);
+  box-shadow: 0 0 0 3px var(--rm-success-soft);
 }
 
 .device-picker .el-select {
@@ -422,22 +422,22 @@ a {
   padding: 0 13px;
   border-radius: 999px;
   background: #fff;
-  border: 1px solid var(--fb-border);
-  box-shadow: var(--fb-shadow-sm);
+  border: 1px solid var(--rm-border);
+  box-shadow: var(--rm-shadow-sm);
   font-size: 12.5px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-variant-numeric: tabular-nums;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
 }
 
 .pill .el-icon {
   font-size: 14px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .pill:hover {
-  border-color: var(--fb-accent-line);
-  color: var(--fb-text);
+  border-color: var(--rm-accent-line);
+  color: var(--rm-text);
 }
 
 .content {
@@ -451,10 +451,10 @@ a {
    ========================================================================== */
 
 .panel {
-  background: var(--fb-panel);
-  border: 1px solid var(--fb-border);
-  border-radius: var(--fb-radius);
-  box-shadow: var(--fb-shadow);
+  background: var(--rm-panel);
+  border: 1px solid var(--rm-border);
+  border-radius: var(--rm-radius);
+  box-shadow: var(--rm-shadow);
   overflow: hidden;
 }
 
@@ -464,7 +464,7 @@ a {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 20px;
-  border-bottom: 1px solid var(--fb-border);
+  border-bottom: 1px solid var(--rm-border);
   background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
 }
 
@@ -483,12 +483,12 @@ a {
 }
 
 .muted {
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 13px;
 }
 
 .mono {
-  font-family: var(--fb-mono);
+  font-family: var(--rm-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -501,11 +501,11 @@ a {
   padding: 14px 18px;
   text-align: left;
   background: #f7f9fd;
-  border: 1px solid var(--fb-border);
-  border-left: 3px solid var(--fb-accent);
+  border: 1px solid var(--rm-border);
+  border-left: 3px solid var(--rm-accent);
   border-radius: 10px;
   color: #2b3448;
-  font-family: var(--fb-mono);
+  font-family: var(--rm-mono);
   font-size: 12.5px;
   line-height: 1.8;
   overflow: auto;
@@ -598,7 +598,7 @@ a {
 
 .login-card .sub {
   margin: 14px 0 26px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -612,17 +612,17 @@ a {
   padding: 0 14px;
   border-radius: 10px;
   background: #fbfcfe;
-  box-shadow: 0 0 0 1px var(--fb-border) inset;
+  box-shadow: 0 0 0 1px var(--rm-border) inset;
   transition: box-shadow 0.16s ease, background 0.16s ease;
 }
 
 .login-card .el-input__wrapper:hover {
-  box-shadow: 0 0 0 1px var(--fb-border-strong) inset;
+  box-shadow: 0 0 0 1px var(--rm-border-strong) inset;
 }
 
 .login-card .el-input__wrapper.is-focus {
   background: #fff;
-  box-shadow: 0 0 0 1px var(--fb-accent) inset, var(--fb-ring);
+  box-shadow: 0 0 0 1px var(--rm-accent) inset, var(--rm-ring);
 }
 
 .login-card .submit {
@@ -637,9 +637,9 @@ a {
 .login-hint {
   margin: 22px 0 0;
   padding-top: 16px;
-  border-top: 1px solid var(--fb-border);
+  border-top: 1px solid var(--rm-border);
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   text-align: left;
   line-height: 1.85;
 }
@@ -648,7 +648,7 @@ a {
   padding: 1px 5px;
   border-radius: 5px;
   background: #f2f5fb;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 11.5px;
   white-space: nowrap;
 }
@@ -664,7 +664,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border: 1px solid var(--fb-border);
+  border: 1px solid var(--rm-border);
   border-radius: 14px;
   background: #fff;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
@@ -675,7 +675,7 @@ a {
 }
 
 .node-card:hover {
-  border-color: var(--fb-accent-line);
+  border-color: var(--rm-accent-line);
   box-shadow: 0 16px 34px -26px rgba(23, 37, 84, 0.5);
 }
 
@@ -705,8 +705,8 @@ a {
 }
 
 .status-dot.online {
-  background: var(--fb-success);
-  box-shadow: 0 0 0 4px var(--fb-success-soft);
+  background: var(--rm-success);
+  box-shadow: 0 0 0 4px var(--rm-success-soft);
   animation: fb-pulse 2.6s ease-in-out infinite;
 }
 
@@ -726,12 +726,12 @@ a {
 .meta-label {
   font-size: 11.5px;
   letter-spacing: 0.04em;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .meta-value {
   font-size: 13.5px;
-  color: var(--fb-text);
+  color: var(--rm-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -770,7 +770,7 @@ a {
 
 .browse-bar .bar-label {
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   letter-spacing: 0.04em;
 }
 
@@ -789,8 +789,8 @@ a {
   padding: 4px 10px;
   border-radius: 999px;
   background: #f6f9ff;
-  border: 1px solid var(--fb-accent-line);
-  color: var(--fb-text-muted);
+  border: 1px solid var(--rm-accent-line);
+  color: var(--rm-text-muted);
   font-size: 12.5px;
   max-width: 42%;
   overflow: hidden;
@@ -799,7 +799,7 @@ a {
 }
 
 .root-path .el-icon {
-  color: var(--fb-accent);
+  color: var(--rm-accent);
   flex: 0 0 auto;
 }
 
@@ -816,7 +816,7 @@ a {
 }
 
 .tree-panel .el-tree-node__content:hover {
-  background: var(--fb-hover);
+  background: var(--rm-hover);
 }
 
 .tree-panel .el-tree-node.is-checked > .el-tree-node__content {
@@ -853,14 +853,14 @@ a {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
 }
 
 .tree-empty span {
   max-width: 380px;
   font-size: 12.5px;
   line-height: 1.75;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 /* --- 树状结构线 ---
@@ -890,7 +890,7 @@ a {
   left: 5px;
   top: 14px;
   height: 14px;
-  border-left: 1px solid var(--fb-tree-line);
+  border-left: 1px solid var(--rm-tree-line);
 }
 
 /* 竖线：每个子节点各画一段。非最后一个画满整段（含自己的子树），
@@ -901,7 +901,7 @@ a {
   left: -19px;
   top: -14px;
   height: calc(100% + 14px);
-  border-left: 1px solid var(--fb-tree-line);
+  border-left: 1px solid var(--rm-tree-line);
 }
 
 .tree-panel .el-tree-node__children > .el-tree-node:last-child::before {
@@ -917,7 +917,7 @@ a {
   left: -19px;
   top: 14px;
   width: 19px;
-  border-top: 1px solid var(--fb-tree-line);
+  border-top: 1px solid var(--rm-tree-line);
 }
 
 .tree-panel
@@ -947,7 +947,7 @@ a {
 }
 
 .tree-node .node-icon.symlink {
-  color: var(--fb-violet);
+  color: var(--rm-violet);
 }
 
 .tree-node .node-name {
@@ -966,7 +966,7 @@ a {
   text-align: right;
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 /* ==========================================================================
@@ -989,7 +989,7 @@ a {
 
 /* 左栏的树是"已入库的路径"，不是远端目录：不懒加载远端，节点带数量 */
 .files-tree {
-  border-right: 1px solid var(--fb-border);
+  border-right: 1px solid var(--rm-border);
   background: linear-gradient(180deg, #fcfdff 0%, #ffffff 100%);
   padding: 10px 6px 16px;
   overflow: auto;
@@ -1002,12 +1002,12 @@ a {
 }
 
 .files-tree .el-tree-node__content:hover {
-  background: var(--fb-hover);
+  background: var(--rm-hover);
 }
 
 .files-tree .el-tree-node.is-current > .el-tree-node__content {
-  background: var(--fb-accent-soft);
-  color: var(--fb-accent);
+  background: var(--rm-accent-soft);
+  color: var(--rm-accent);
 }
 
 /* 树的 label 要撑满，否则右边的数量会紧贴在名字后面，而不是靠右对齐 */
@@ -1021,7 +1021,7 @@ a {
   margin-left: auto;
   padding-right: 6px;
   font-size: 11px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1038,7 +1038,7 @@ a {
   justify-content: space-between;
   gap: 12px;
   padding: 11px 20px;
-  border-bottom: 1px solid var(--fb-border);
+  border-bottom: 1px solid var(--rm-border);
 }
 
 .crumbs {
@@ -1053,17 +1053,17 @@ a {
 .crumbs a {
   padding: 2px 5px;
   border-radius: 5px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   cursor: pointer;
 }
 
 .crumbs a:hover {
-  background: var(--fb-hover);
-  color: var(--fb-text);
+  background: var(--rm-hover);
+  color: var(--rm-text);
 }
 
 .crumbs a.leaf {
-  color: var(--fb-text);
+  color: var(--rm-text);
   font-weight: 600;
   cursor: default;
 }
@@ -1073,12 +1073,12 @@ a {
 }
 
 .crumb-sep {
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .files-total {
   font-size: 12.5px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -1090,13 +1090,13 @@ a {
   align-items: center;
   gap: 10px;
   padding: 11px 20px;
-  border-bottom: 1px solid var(--fb-border);
+  border-bottom: 1px solid var(--rm-border);
   cursor: pointer;
   transition: background 0.14s ease;
 }
 
 .dir-row:hover {
-  background: var(--fb-hover);
+  background: var(--rm-hover);
 }
 
 .dir-row .row-icon {
@@ -1114,7 +1114,7 @@ a {
 
 .dir-row .row-meta {
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1132,13 +1132,13 @@ a {
   align-items: center;
   gap: 10px;
   padding: 9px 20px;
-  border-bottom: 1px solid var(--fb-border);
+  border-bottom: 1px solid var(--rm-border);
   font-size: 13px;
   transition: background 0.14s ease;
 }
 
 .file-row:hover {
-  background: var(--fb-hover);
+  background: var(--rm-hover);
 }
 
 .file-row .row-name {
@@ -1150,13 +1150,13 @@ a {
 .file-row .row-size {
   text-align: right;
   font-size: 12px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .file-row .row-time {
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .file-row .row-actions {
@@ -1187,7 +1187,7 @@ a {
   justify-content: center;
   gap: 8px;
   padding: 60px 24px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .empty-folder .el-icon {
@@ -1208,7 +1208,7 @@ a {
   max-width: 380px;
   font-size: 12.5px;
   line-height: 1.75;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .search-pane {
@@ -1260,10 +1260,10 @@ a {
    ========================================================================== */
 
 .el-table {
-  --el-table-border-color: var(--fb-border);
+  --el-table-border-color: var(--rm-border);
   --el-table-header-bg-color: #f7f9fd;
-  --el-table-header-text-color: var(--fb-text-muted);
-  --el-table-text-color: var(--fb-text);
+  --el-table-header-text-color: var(--rm-text-muted);
+  --el-table-text-color: var(--rm-text);
   --el-table-row-hover-bg-color: #f7faff;
   font-size: 13.5px;
 }
@@ -1286,12 +1286,12 @@ a {
 }
 
 .el-table--border .el-table__cell {
-  border-right-color: var(--fb-border);
+  border-right-color: var(--rm-border);
 }
 
 .cell-path {
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
   margin-top: 2px;
   word-break: break-all;
 }
@@ -1315,12 +1315,12 @@ a {
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
 }
 
 .deduped-cell .el-icon {
   font-size: 15px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 /* 文件列（任务页 / 文件库共用）：一行 "路径/文件名"，路径压暗、文件名加深。
@@ -1346,13 +1346,13 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  color: var(--fb-text-faint);
+  color: var(--rm-text-faint);
 }
 
 .file-name {
   flex: 0 0 auto;
   font-weight: 500;
-  color: var(--fb-text);
+  color: var(--rm-text);
 }
 
 .row-actions {
@@ -1363,14 +1363,14 @@ a {
 }
 
 .danger-link {
-  color: var(--fb-danger);
+  color: var(--rm-danger);
   cursor: pointer;
   transition: opacity 0.14s ease;
 }
 
 .link-btn {
   cursor: pointer;
-  color: var(--fb-accent);
+  color: var(--rm-accent);
   transition: opacity 0.14s ease;
 }
 
@@ -1412,36 +1412,36 @@ a {
 
 .el-button.is-text {
   border-radius: 7px;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
 }
 
 .el-button.is-text:hover {
-  background: var(--fb-hover);
-  color: var(--fb-accent);
+  background: var(--rm-hover);
+  color: var(--rm-accent);
 }
 
 .el-input__wrapper,
 .el-select__wrapper {
   border-radius: 8px;
   background: #fbfcfe;
-  box-shadow: 0 0 0 1px var(--fb-border) inset;
+  box-shadow: 0 0 0 1px var(--rm-border) inset;
   transition: box-shadow 0.16s ease, background 0.16s ease;
 }
 
 .el-input__wrapper:hover,
 .el-select__wrapper:hover {
-  box-shadow: 0 0 0 1px var(--fb-border-strong) inset;
+  box-shadow: 0 0 0 1px var(--rm-border-strong) inset;
 }
 
 .el-input__wrapper.is-focus,
 .el-select__wrapper.is-focused {
   background: #fff;
-  box-shadow: 0 0 0 1px var(--fb-accent) inset, var(--fb-ring);
+  box-shadow: 0 0 0 1px var(--rm-accent) inset, var(--rm-ring);
 }
 
 .el-textarea__inner {
   border-radius: 8px;
-  box-shadow: 0 0 0 1px var(--fb-border) inset;
+  box-shadow: 0 0 0 1px var(--rm-border) inset;
 }
 
 .el-tag {
@@ -1452,7 +1452,7 @@ a {
 
 .el-tag.el-tag--info {
   background: #f1f4fa;
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
 }
 
 .el-alert {
@@ -1487,7 +1487,7 @@ a {
 
 .el-dialog {
   border-radius: 16px;
-  box-shadow: var(--fb-shadow-lg);
+  box-shadow: var(--rm-shadow-lg);
   overflow: hidden;
 }
 
@@ -1512,14 +1512,14 @@ a {
 
 .el-message-box {
   border-radius: 14px;
-  box-shadow: var(--fb-shadow-lg);
+  box-shadow: var(--rm-shadow-lg);
   padding: 20px;
 }
 
 .el-dropdown-menu {
   padding: 6px;
   border-radius: 10px;
-  box-shadow: var(--fb-shadow);
+  box-shadow: var(--rm-shadow);
 }
 
 .el-dropdown-menu__item {
@@ -1532,7 +1532,7 @@ a {
 }
 
 .el-empty__description p {
-  color: var(--fb-text-muted);
+  color: var(--rm-text-muted);
   font-size: 13px;
 }
 

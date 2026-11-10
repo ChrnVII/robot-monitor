@@ -14,8 +14,8 @@ function handleUnauthorized() {
   router.push({ name: 'login', query: { redirect: current.fullPath } })
 }
 
-onMounted(() => window.addEventListener('fb:unauthorized', handleUnauthorized))
-onUnmounted(() => window.removeEventListener('fb:unauthorized', handleUnauthorized))
+onMounted(() => window.addEventListener('rm:unauthorized', handleUnauthorized))
+onUnmounted(() => window.removeEventListener('rm:unauthorized', handleUnauthorized))
 </script>
 
 <template>

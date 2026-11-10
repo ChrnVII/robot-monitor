@@ -1,16 +1,16 @@
 [Unit]
-Description=FileBridge agent (B)
-Documentation=https://github.com/your-org/filebridge
+Description=Robot Monitor agent (B)
+Documentation=https://github.com/your-org/robot-monitor
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=filebridge
-Group=filebridge
-EnvironmentFile=/etc/filebridge/agent.env
+User=robot-monitor
+Group=robot-monitor
+EnvironmentFile=/etc/robot-monitor/agent.env
 
-ExecStart=/opt/filebridge-agent/.venv/bin/filebridge-agent
+ExecStart=/opt/robot-monitor-agent/.venv/bin/robot-monitor-agent
 
 Restart=always
 RestartSec=5
@@ -24,7 +24,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadOnlyPaths=/srv/share
-ReadWritePaths=/var/log/filebridge
+ReadWritePaths=/var/log/robot-monitor
 LimitNOFILE=65535
 
 [Install]

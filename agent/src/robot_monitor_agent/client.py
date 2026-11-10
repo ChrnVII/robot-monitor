@@ -46,7 +46,7 @@ from .protocol import (
 from .sandbox import Sandbox, SandboxError
 from .uploader import UploadJob, UploadManager
 
-logger = logging.getLogger("filebridge.agent")
+logger = logging.getLogger("robot-monitor.agent")
 
 OUTBOX_SIZE = 128
 STABLE_CONNECTION_SECONDS = 60.0
@@ -139,7 +139,7 @@ class AgentClient:
         elif outcome.code == "token_mismatch":
             logger.error(
                 "token 与 A 的记录对不上：%s\n"
-                "用 `filebridge-server issue-token` 拿到的新 token 启动。",
+                "用 `robot-monitor-server issue-token` 拿到的新 token 启动。",
                 outcome.message,
             )
         elif outcome.code == "unknown_agent":
@@ -150,7 +150,7 @@ class AgentClient:
             )
         else:
             logger.error(
-                "轮换没有成功（%s）：%s\n稍后重启再试，或到 A 上 `filebridge-server pending` 看看。",
+                "轮换没有成功（%s）：%s\n稍后重启再试，或到 A 上 `robot-monitor-server pending` 看看。",
                 outcome.code or "unknown",
                 outcome.message or "没有更多信息",
             )

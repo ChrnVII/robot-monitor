@@ -41,7 +41,7 @@ from .credentials import (
     stored_slots,
 )
 
-logger = logging.getLogger("filebridge.agent.enroll")
+logger = logging.getLogger("robot-monitor.agent.enroll")
 
 POLL_INTERVAL = 3.0
 POLL_TIMEOUT = 600.0
@@ -283,7 +283,7 @@ async def _wait_for_approval(
             if body.get("status") == "pending":
                 if time.monotonic() - last_note > 30:
                     last_note = time.monotonic()
-                    print(f"   仍在等待批准：到 A 的「节点」页点批准（或 filebridge-server approve {pending_id[:10]}）")
+                    print(f"   仍在等待批准：到 A 的「节点」页点批准（或 robot-monitor-server approve {pending_id[:10]}）")
                 continue
             return await _persist(config, body)
 
@@ -298,7 +298,7 @@ async def _wait_for_approval(
 
     raise EnrollError(
         f"等待批准超过 {int(POLL_TIMEOUT)}s。在 A 上执行 "
-        f"`filebridge-server pending` 看看有没有这条申请，或重新发起注册。"
+        f"`robot-monitor-server pending` 看看有没有这条申请，或重新发起注册。"
     )
 
 

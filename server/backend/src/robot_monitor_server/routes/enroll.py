@@ -1,10 +1,10 @@
 """设备注册端点：`/internal/enroll`。
 
 这是 B 唯一一个**不需要 token**就能访问的入口，所以它的准入判据必须是显式的、
-可审计的。三种策略（`FILEBRIDGE_ENROLL_POLICY`）：
+可审计的。三种策略（`ROBOT_MONITOR_ENROLL_POLICY`）：
 
 - `closed`（默认）：全部转人工。管理员在网页「节点」页看到待批准列表并点批准
-  （等价 CLI：`filebridge-server approve <id>`）。这是唯一不依赖"谁先连上"的策略。
+  （等价 CLI：`robot-monitor-server approve <id>`）。这是唯一不依赖"谁先连上"的策略。
 - `first`：库里一台节点都没有时免审——空系统没有数据可被窃取，风险窗口只有
   "部署完到第一台 B 连上"这一小段，但这段窗口里任何能连到 A 的机器都能抢这个名额。
 - `open`：任何请求都自动登记。给完全可信的内网用，代价是任何人能连上 A 就能挂
@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import Context
 
-logger = logging.getLogger("filebridge.enroll")
+logger = logging.getLogger("robot-monitor.enroll")
 
 router = APIRouter(prefix="/internal/enroll", tags=["设备注册"])
 
@@ -123,7 +123,7 @@ async def enroll(payload: EnrollRequest, request: Request, ctx: Context):
             "pending_id": pending_id,
             "hint": (
                 "在 A 的「节点」页面点批准，或在 A 上执行："
-                f"filebridge-server approve {pending_id}"
+                f"robot-monitor-server approve {pending_id}"
             ),
         },
     )

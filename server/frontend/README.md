@@ -1,4 +1,4 @@
-# filebridge-frontend
+# robot-monitor-frontend
 
 Vue 3 + JavaScript + Vite + Element Plus。侧栏两级入口：文件管理（取件 / 上传任务 / 文件库）和节点；另有登录页。
 

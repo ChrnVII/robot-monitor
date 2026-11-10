@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from filebridge_agent.main import require_linux
+from robot_monitor_agent.main import require_linux
 
 
 def test_linux_is_accepted():
@@ -33,7 +33,7 @@ def test_entrypoint_calls_the_guard(monkeypatch):
     """main() 必须真的调用门禁，否则这条断言就只是摆设。"""
     import sys
 
-    from filebridge_agent import main as main_module
+    from robot_monitor_agent import main as main_module
 
     monkeypatch.setattr(sys, "platform", "win32")
 

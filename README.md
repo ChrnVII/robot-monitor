@@ -1,4 +1,4 @@
-# FileBridge
+# Robot Monitor
 
 让一台**没有公网 IP** 的机器（B）把指定文件传到**有公网 IP** 的服务器（A）上，
 然后用浏览器（C）在 A 上浏览、下载、管理这些文件。
@@ -80,8 +80,8 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 打开 <http://127.0.0.1:5173>，用 `admin` + 刚才设的密码登录。
 
 **没有手工步骤**：密码不用算哈希、token 不用复制粘贴。凭据都存在该存的地方——
-密码在 `data/filebridge.db`，agent 的 token 在项目内 `agent/.filebridge/agents/`，
-一台 A 一个文件（0600，已 gitignore；wheel 安装时在 `~/.local/state/filebridge/`）。
+密码在 `data/robot-monitor.db`，agent 的 token 在项目内 `agent/.robot-monitor/agents/`，
+一台 A 一个文件（0600，已 gitignore；wheel 安装时在 `~/.local/state/robot-monitor/`）。
 
 之后再启动，参数都可以省：
 
@@ -100,7 +100,7 @@ path 依赖、给 B 装 agent 得装两个 wheel、改一行注释要动第三�
 ./dev.sh revoke-token <agent_id>
 ```
 
-> **任何新增设备都要你批准**（默认 `FILEBRIDGE_ENROLL_POLICY=closed`，第一台也一样）。
+> **任何新增设备都要你批准**（默认 `ROBOT_MONITOR_ENROLL_POLICY=closed`，第一台也一样）。
 > B 启动后会在 A 的「节点」页顶出「待批准接入」表格，点 **批准** 即可，不用敲命令。
 > 只有想让新机器免审接入时才改成 `first`（空库首台免审）或 `open`（全部免审）。
 

@@ -13,12 +13,12 @@ import json
 import httpx
 import pytest
 
-from filebridge_agent import uploader as uploader_module
-from filebridge_agent.config import AgentConfig
-from filebridge_agent.errors import UploadCancelled, UploadFailed
-from filebridge_agent.protocol import ErrorCode
-from filebridge_agent.sandbox import Sandbox
-from filebridge_agent.uploader import UploadJob, UploadManager
+from robot_monitor_agent import uploader as uploader_module
+from robot_monitor_agent.config import AgentConfig
+from robot_monitor_agent.errors import UploadCancelled, UploadFailed
+from robot_monitor_agent.protocol import ErrorCode
+from robot_monitor_agent.sandbox import Sandbox
+from robot_monitor_agent.uploader import UploadJob, UploadManager
 
 CHUNK = 1024
 PAYLOAD = bytes(range(256)) * 16

@@ -40,10 +40,10 @@ async function submit() {
   <div class="login-page">
     <div class="login-card">
       <div class="brand">
-        <span class="brand-mark">FB</span>
+        <span class="brand-mark">RM</span>
         <span>
-          FileBridge
-          <span class="brand-sub">内网取件通道</span>
+          Robot Monitor
+          <span class="brand-sub">内网设备通道</span>
         </span>
       </div>
       <p class="sub">登录后浏览内网机器上的文件，按需取回到这里。</p>
@@ -77,8 +77,8 @@ async function submit() {
 
       <p class="login-hint">
         管理员密码存放在服务端数据库：首次启动
-        <span class="mono">filebridge-server serve</span> 会引导设置，之后用
-        <span class="mono">filebridge-server passwd</span> 修改。
+        <span class="mono">robot-monitor-server serve</span> 会引导设置，之后用
+        <span class="mono">robot-monitor-server passwd</span> 修改。
       </p>
     </div>
   </div>
