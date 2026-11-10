@@ -30,9 +30,9 @@ const tabs = [
 const inManage = computed(() => route.path.startsWith('/manage'))
 const inNodes = computed(() => route.name === 'nodes')
 
-// 顶栏节点选择器只出现在"内容由某台节点决定"的页面（route.meta.device）。
-// 节点页是节点列表本身、文件库是全部节点的归档，放上去只会误导。
-const showDevice = computed(() => Boolean(route.meta.device))
+// 顶栏节点选择器常驻：它选的是"当前设备"这个全局状态，不是一个页面筛选器。
+// 节点页/文件库用它不改变自己的内容，但用户随时能在这里定好要看哪台，
+// 再进取件或上传任务时就少一次切换。
 const selectedDevice = computed({
   get: () => device.id,
   set: (value) => device.select(value)
@@ -131,8 +131,8 @@ onUnmounted(() => {
         <h1 v-else class="page-heading">{{ route.meta.title }}</h1>
 
         <div class="topbar-right">
-          <!-- 全局节点选择：切一次，取件/任务都跟着换。只在受它影响的页面出现 -->
-          <div v-if="showDevice" class="device-picker">
+          <!-- 全局节点选择：常驻。切一次，取件和上传任务同时跟着换 -->
+          <div class="device-picker">
             <span class="device-label">节点</span>
             <span v-if="device.current" class="device-dot" :class="{ online: device.online }" />
             <el-select

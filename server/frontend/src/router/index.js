@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth'
 
 // 一级导航（侧栏）：文件管理、节点。
 // 「文件管理」下面挂三个子页面，在顶栏以 tab 出现；「节点」是独立页面。
-// meta.device = true 的页面受顶栏那个全局节点下拉框影响（见 layout/AppLayout.vue）。
+// 顶栏的节点下拉框是常驻的全局状态，不属于任何单个路由。
 const routes = [
   {
     path: '/login',
@@ -23,18 +23,17 @@ const routes = [
         meta: { title: '节点' }
       },
       { path: 'manage', redirect: { name: 'browse' } },
-      { path: 'manage/nodes', redirect: { name: 'nodes' } },
       {
         path: 'manage/browse',
         name: 'browse',
         component: () => import('../views/BrowseView.vue'),
-        meta: { title: '取件', device: true }
+        meta: { title: '取件' }
       },
       {
         path: 'manage/tasks',
         name: 'tasks',
         component: () => import('../views/TasksView.vue'),
-        meta: { title: '上传任务', device: true }
+        meta: { title: '上传任务' }
       },
       {
         path: 'manage/files',
@@ -44,10 +43,6 @@ const routes = [
       }
     ]
   },
-  // 改层级之前收藏的书签、以及外部链接：按 name 重定向，不保留旧路径。
-  { path: '/browse', redirect: { name: 'browse' } },
-  { path: '/tasks', redirect: { name: 'tasks' } },
-  { path: '/files', redirect: { name: 'files' } },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
