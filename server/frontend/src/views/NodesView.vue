@@ -226,11 +226,11 @@ onUnmounted(stopWatching)
         <div class="panel-body" style="text-align: center; padding: 48px 24px">
           <el-empty description="还没有登记任何节点">
             <p class="muted" style="max-width: 560px; margin: 0 auto 18px">
-              在 B 上启动 agent，它会自动向 A 注册；如果准入策略要求人工确认，
+              在机器人上启动 cloud-agent，它会自动向云端注册；如果准入策略要求人工确认，
               它会先出现在上面的「待批准接入」里。这里不需要做任何配置。
             </p>
-            <pre class="codeblock"># B 端
-robot-monitor-agent --server https://你的域名 --root /srv/share
+            <pre class="codeblock"># 机器人工控机（robot-backend）
+.venv/bin/python -m app.cloud_agent --server https://你的域名 --root /srv/share
 
 # 也可以手工签发（跳过注册审批）
 robot-monitor-server issue-token --name b-office</pre>

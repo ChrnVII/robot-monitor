@@ -29,17 +29,10 @@ import httpx
 import pytest
 import uvicorn
 
-# 端到端测试要驱动一个真实的 agent，但它属于另一个项目：部署 A 时只有 server/
-# 被拷过去，此时 agent 包并不存在。没装就整组跳过，而不是让 A 上的 pytest
-# 在 import 阶段直接失败。
-pytest.importorskip(
-    "robot_monitor_agent",
-    reason="端到端测试需要 agent 项目已装入本环境：在仓库根跑 `./dev.sh sync`",
-)
-
-from robot_monitor_agent.client import AgentClient
-from robot_monitor_agent.config import AgentConfig
-from robot_monitor_agent.sandbox import Sandbox
+# 端到端测试需要机器人侧。以前这里 import 的是 `monitor/agent`；
+# 那个项目已经由 `robot-backend/app/cloud_agent` 取代，server 不该再依赖它。
+# 现在用测试内置的协议级替身：真实 WS、真实分片、真实 sha256，且自包含。
+from support.mini_agent import MiniAgent
 
 from robot_monitor_server.auth import AuthService
 from robot_monitor_server.config import Settings
@@ -106,22 +99,9 @@ def stack(tmp_path):
     wait_for(lambda: server.started, 20, "uvicorn 没起来")
 
     base = f"http://127.0.0.1:{port}"
-    agent_config = AgentConfig(
-        server=base,
-        token=token,
-        root=str(share),
-        heartbeat_interval=0.5,
-        max_concurrent_uploads=3,
-        open_timeout=5.0,
-    )
-    client = AgentClient(agent_config, Sandbox(str(share)))
-    agent_loop = asyncio.new_event_loop()
+    client = MiniAgent(share, base, token)
 
-    def run_agent() -> None:
-        asyncio.set_event_loop(agent_loop)
-        agent_loop.run_until_complete(client.run())
-
-    agent_thread = threading.Thread(target=run_agent, daemon=True)
+    agent_thread = threading.Thread(target=lambda: asyncio.run(client.run()), daemon=True)
     agent_thread.start()
 
     http = httpx.Client(base_url=base, timeout=60.0)
@@ -148,14 +128,10 @@ def stack(tmp_path):
         )
     finally:
         http.close()
-        agent_loop.call_soon_threadsafe(client.stop)
+        client.stop()
         agent_thread.join(timeout=15)
         server.should_exit = True
         server_thread.join(timeout=15)
-        try:
-            agent_loop.close()
-        except RuntimeError:
-            pass
 
 
 def create_task(stack, rel_path: str) -> dict:

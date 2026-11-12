@@ -1,13 +1,9 @@
-"""协议契约测试（A 端）。
+"""协议契约测试（server 端）。
 
-这套"两端各持一份 protocol.py、不抽共享包"的方案，靠两条测试兜住漂移：
-
-1. **源码比对**：本项目的 `protocol.py` 与 agent 那份必须逐字节一致。
-   改协议只改一边 → 这条红。
-2. **黄金样例**：两端都读仓库根的 `contract/protocol-frames.json`，
-   解析与序列化结果必须与样例一致。两边都改错但改得不一样 → 这条红。
-
-第 2 条是本文件的主体，第 1 条只有 20 行但更狠。
+旧 agent 项目已删除，现在只剩这一份实现；协议漂移由
+`contract/protocol-frames.json` 的黄金样例兜住：解析与序列化结果必须与样例
+逐字段一致。新实现（robot-backend 的 app.cloud_agent）在它自己的测试里读同一份
+契约文件，两端都跑，改坏哪边都会红。
 """
 
 from __future__ import annotations
@@ -29,8 +25,6 @@ from robot_monitor_server.protocol import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = REPO_ROOT / "contract" / "protocol-frames.json"
-AGENT_COPY = REPO_ROOT / "agent" / "src" / "robot_monitor_agent" / "protocol.py"
-OWN_COPY = Path(__file__).resolve().parents[1] / "src" / "robot_monitor_server" / "protocol.py"
 
 
 # 单独部署一端时，仓库根的 contract/ 并不在机器上（它只是测试夹具）。
@@ -42,19 +36,6 @@ if not CONTRACT_PATH.is_file():
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 FRAMES = CONTRACT["frames"]
 FRAME_IDS = [case["name"] for case in FRAMES]
-
-
-# --- 保险丝：两份源码必须一致 -------------------------------------------
-
-
-def test_protocol_copy_is_identical():
-    if not AGENT_COPY.is_file():
-        pytest.skip("agent 不在同级目录（独立部署场景），跳过源码比对")
-
-    assert OWN_COPY.read_bytes() == AGENT_COPY.read_bytes(), (
-        "server 与 agent 的 protocol.py 已经不一致。改协议时两边要一起改，"
-        "或者先把 contract/protocol-frames.json 改对再同步两份实现。"
-    )
 
 
 # --- 黄金样例 -----------------------------------------------------------

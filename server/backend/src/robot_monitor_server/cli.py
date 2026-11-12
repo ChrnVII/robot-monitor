@@ -150,8 +150,9 @@ async def _issue_token(name: str, hostname: str | None, os_name: str | None) -> 
         print(f"token:    {token}")
         print(
             "\ntoken 只显示这一次，库里只存 sha256，丢了只能重新签发。\n"
-            "在 B 上配置：\n"
-            f"  robot-monitor-agent --server https://<你的域名> --token {token} --root /path/to/share",
+            "在机器人工控机上（robot-backend）配置：\n"
+            "  .venv/bin/python -m app.cloud_agent "
+            f"--server https://<你的域名> --token {token} --root /path/to/share",
             file=sys.stderr,
         )
 

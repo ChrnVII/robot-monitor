@@ -16,17 +16,14 @@ dependencies = [
 robot-monitor-server = "robot_monitor_server.main:main"
 
 # 无 workspace、无 path 依赖：本项目可以单独 clone、单独 build、单独部署到 A 上。
-# 线上协议在 src/robot_monitor_server/protocol.py 里，与 agent 那份必须逐字节一致
-# （由 tests/test_protocol.py 比对）。
+# 线上协议在 src/robot_monitor_server/protocol.py；与机器侧实现的一致性由
+# tests/contracts/protocol-frames.json 的黄金样例保证（两端各跑一遍）。
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
 build-backend = "uv_build"
 
 [dependency-groups]
-# 这里**不能**出现 robot-monitor-agent：一旦写进来，server 就依赖 ../agent 存在，
-# 而部署时 A 上只有 server/。实测 `uv sync` 会因为 path 解析失败直接退出。
-# 端到端测试需要真实 agent 时，用 `./dev.sh sync`（它会额外把 ../../agent
-# 装进这个 venv），测试文件里有 importorskip 兜住"没装就跳过"。
+# 端到端测试用 tests/support/mini_agent.py 自带的协议级替身，不依赖任何外部项目。
 dev = [
     "pytest>=8.0",
     "ruff>=0.7",
