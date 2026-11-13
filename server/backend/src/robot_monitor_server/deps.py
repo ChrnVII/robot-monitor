@@ -16,6 +16,7 @@ from .config import Settings
 from .db import Database
 from .events import EventBus
 from .hub import Hub
+from .media import MediaHub
 from .protocol import ErrorCode
 from .ratelimit import SlidingWindow
 from .services import TaskService
@@ -38,6 +39,7 @@ class AppContext:
     storage: Storage
     bus: EventBus
     tasks: TaskService
+    media: MediaHub
     limits: Limits
 
 

@@ -29,9 +29,11 @@ from .deps import AppContext, Limits
 from .errors import ApiError, from_agent_error
 from .events import EventBus
 from .hub import AgentError, Hub
+from .media import MediaHub
 from .ratelimit import SlidingWindow
-from .routes import agents, enroll, events, files, system, tasks, uploads
+from .routes import agents, camera, enroll, events, files, system, tasks, uploads
 from .routes import auth as auth_routes
+from .routes import live as live_routes
 from .services import TaskService
 from .storage import Storage
 from .ws import router as ws_router
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     hub = Hub(auth, bus, cfg)
     storage = Storage(cfg)
     task_service = TaskService(db, cfg, hub, storage, bus, auth)
+    media_hub = MediaHub(hub, cfg)
     ctx = AppContext(
         settings=cfg,
         db=db,
@@ -64,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         storage=storage,
         bus=bus,
         tasks=task_service,
+        media=media_hub,
         limits=Limits(
             login=SlidingWindow(cfg.login_rate_limit_per_minute),
             task=SlidingWindow(cfg.task_rate_limit_per_minute),
@@ -95,6 +99,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         maintenance.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await maintenance
+        # 先关媒体会话，此时控制通道还在，能给 agent 发 stop；
+        # 反过来会让机器人侧的上游多挂一会儿。
+        with contextlib.suppress(Exception):
+            await ctx.media.shutdown()
         await hub.close_all()
         await hub.stop_sweeper()
         await db.close()
@@ -152,9 +160,10 @@ def create_app(config: Settings | None = None) -> FastAPI:
             content={"code": converted.code.value, "message": converted.message},
         )
 
-    for module in (system, auth_routes, agents, tasks, files, uploads, events, enroll):
+    for module in (system, auth_routes, agents, tasks, files, uploads, events, enroll, camera):
         app.include_router(module.router)
     app.include_router(ws_router)
+    app.include_router(live_routes.router)
 
     _install_frontend(app, cfg)
     return app

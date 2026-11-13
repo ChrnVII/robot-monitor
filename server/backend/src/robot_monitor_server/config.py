@@ -84,6 +84,18 @@ class Settings(BaseSettings):
     login_rate_limit_per_minute: int = 10
     task_rate_limit_per_minute: int = 30
 
+    # --- 摄像头（媒体中继 + 云台）---------------------------------------
+    # 单会话最多几个观众。共享同一路上游，所以云端出向带宽 = 码率 × 观众数。
+    media_max_viewers: int = 4
+    # 最后一个观众离开后多久关上游。刷新页面会瞬间断开再连上，不能立刻拆。
+    media_idle_seconds: float = 10.0
+    # 单会话最长时长。到点主动结束，防止一路看一天把带宽吃满。
+    media_max_session_seconds: float = 1800.0
+    # 等 cloud-agent 把媒体上游接进来的时限。
+    media_command_timeout: float = 8.0
+    # 单会话云台指令频率上限（次/秒），防止前端 bug 打爆机器人。
+    media_ptz_rate_per_second: int = 20
+
     # --- 派生 -----------------------------------------------------------
 
     @property

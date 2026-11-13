@@ -22,6 +22,12 @@ const routes = [
         component: () => import('../views/NodesView.vue'),
         meta: { title: '节点' }
       },
+      {
+        path: 'live',
+        name: 'live',
+        component: () => import('../views/LiveView.vue'),
+        meta: { title: '远程监控' }
+      },
       { path: 'manage', redirect: { name: 'browse' } },
       {
         path: 'manage/browse',

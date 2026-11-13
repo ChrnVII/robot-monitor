@@ -58,6 +58,9 @@ class AgentMeta:
     os: str | None = None
     agent_version: str | None = None
     roots: list[str] = field(default_factory=list)
+    #: 能力声明，来自 hello.payload.features。旧 agent 没有这个字段，
+    #: 于是这里为空——页面据此隐藏摄像头入口，而不是点了才报 unknown_command。
+    features: tuple[str, ...] = ()
 
 
 class AgentConnection:

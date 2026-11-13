@@ -149,6 +149,55 @@
         },
         "ts": 1761033620.0
       }
+    },
+    {
+      "name": "command_camera_stream_start",
+      "description": "云端要求机器人建立媒体上游；媒体数据本身走独立 WS，不在这条连接上",
+      "frame": {
+        "v": 1,
+        "type": "command",
+        "id": "b7c1d2e3f4051627",
+        "command": "camera.stream.start",
+        "payload": {
+          "cameraId": "ptz",
+          "sessionId": "s-2f1c9a"
+        },
+        "ts": 1761033700.5
+      }
+    },
+    {
+      "name": "command_camera_ptz",
+      "description": "云台连续转动；direct 与本地 backend 的方向枚举一致",
+      "frame": {
+        "v": 1,
+        "type": "command",
+        "id": "c8d2e3f405162738",
+        "command": "camera.ptz",
+        "payload": {
+          "cameraId": "ptz",
+          "sessionId": "s-2f1c9a",
+          "action": "start",
+          "direct": "left",
+          "speed": 0.5
+        },
+        "ts": 1761033701.25
+      }
+    },
+    {
+      "name": "result_control_conflict",
+      "description": "本地人工接管，远程租约被拒；前端据此显示提示而不是掉线",
+      "frame": {
+        "v": 1,
+        "type": "result",
+        "id": "c8d2e3f405162738",
+        "ok": false,
+        "error": {
+          "code": "control_conflict",
+          "message": "本地已接管"
+        },
+        "ts": 1761033701.4,
+        "payload": {}
+      }
     }
   ],
   "rejected": [

@@ -54,9 +54,11 @@ class CommandName(str, Enum):
     设计成封闭枚举而非自由字符串是刻意的：B 收到任何不在这张表里的命令都直接
     拒绝。即使 A 被攻破，攻击者能让 B 做的事也只是这个有限集合。
 
-    本系统只有读操作。没有 delete、没有 write、没有 run_command——参考项目
+    文件侧只有读操作。没有 delete、没有 write、没有 run_command——参考项目
     remote-machine-access 的文档里承认了 `run_command` 能绕过路径沙箱
     （`cat /etc/passwd` 即可读全盘），我们不提供这个能力，从设计上消除 RCE 面。
+    摄像头侧只有 stream / ptz / preset 五个动作，且由本机 backend 再校验租约与
+    急停语义：云端下发的不是"任意设备指令"，而是一个受限子集。
     """
 
     PING = "ping"
@@ -65,6 +67,15 @@ class CommandName(str, Enum):
     HASH_FILE = "hash_file"
     START_UPLOAD = "start_upload"
     CANCEL_TASK = "cancel_task"
+    # --- 摄像头（媒体与云台）------------------------------------------
+    # 这几条不碰文件系统，但仍然走同一个封闭枚举：B 依然只接受白名单内的动作。
+    # 媒体数据本身不走这条连接（它是持续二进制），这里的 start/stop 只是让 B
+    # 建立/拆除一条独立的上游媒体通道。
+    CAMERA_STREAM_START = "camera.stream.start"
+    CAMERA_STREAM_STOP = "camera.stream.stop"
+    CAMERA_PTZ = "camera.ptz"
+    CAMERA_PRESET_LIST = "camera.preset.list"
+    CAMERA_PRESET_GOTO = "camera.preset.goto"
 
 
 # B 端可以执行的命令白名单。任何不在其中的 command 一律 unknown_command。
@@ -91,6 +102,13 @@ class ErrorCode(str, Enum):
     RATE_LIMITED = "rate_limited"
     INSUFFICIENT_SPACE = "insufficient_space"   # A 侧磁盘余量不够，建任务前就拒绝
     INTERNAL = "internal"
+    # --- 摄像头 ---------------------------------------------------------
+    # 这四条是"机器人本地平台"的状态，不是协议错误。分出来是因为前端要展示
+    # 完全不同的处理：重连、去本地点一下、改配置、还是升级 agent。
+    BACKEND_UNREACHABLE = "backend_unreachable"   # cloud-agent 连不上 127.0.0.1:8100
+    BACKEND_AUTH_FAILED = "backend_auth_failed"   # 本地平台拒绝了 cloud-agent
+    STREAM_DISABLED = "stream_disabled"           # 本地未启用低延迟预览
+    CONTROL_CONFLICT = "control_conflict"         # 本地人工接管，远程租约被拒
 
 
 class ProtocolError(Exception):

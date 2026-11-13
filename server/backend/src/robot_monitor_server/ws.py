@@ -78,6 +78,10 @@ async def agent_socket(websocket: WebSocket) -> None:
     os_name = _as_str(payload.get("os"))
     version = _as_str(payload.get("agent_version"))
     roots = [str(r) for r in payload.get("roots", []) if isinstance(r, str)]
+    # 能力声明是可选的：旧 agent 不发这个字段，按"只支持文件类指令"处理。
+    features = tuple(
+        str(item) for item in payload.get("features", []) if isinstance(item, str)
+    )
 
     await ctx.db.execute(
         "UPDATE agents SET hostname = COALESCE(?, hostname), os = COALESCE(?, os),"
@@ -92,6 +96,7 @@ async def agent_socket(websocket: WebSocket) -> None:
         os=os_name,
         agent_version=version,
         roots=roots,
+        features=features,
     )
     conn = AgentConnection(
         websocket=websocket,

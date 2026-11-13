@@ -29,6 +29,7 @@ const tabs = [
 // 判不出来。
 const inManage = computed(() => route.path.startsWith('/manage'))
 const inNodes = computed(() => route.name === 'nodes')
+const inLive = computed(() => route.name === 'live')
 
 // 顶栏节点选择器常驻：它选的是"当前设备"这个全局状态，不是一个页面筛选器。
 // 节点页/文件库用它不改变自己的内容，但用户随时能在这里定好要看哪台，
@@ -110,6 +111,10 @@ onUnmounted(() => {
           >
             {{ stats.pending_enrollments }}
           </span>
+        </router-link>
+        <router-link :to="{ name: 'live' }" class="nav-item" :class="{ active: inLive }">
+          <el-icon><VideoCamera /></el-icon>
+          <span>远程监控</span>
         </router-link>
       </nav>
     </aside>

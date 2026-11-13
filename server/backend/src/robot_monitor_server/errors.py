@@ -39,6 +39,12 @@ def from_agent_error(error: AgentError) -> ApiError:
         ErrorCode.SIZE_CHANGED: status.HTTP_409_CONFLICT,
         ErrorCode.RATE_LIMITED: status.HTTP_429_TOO_MANY_REQUESTS,
         ErrorCode.INSUFFICIENT_SPACE: status.HTTP_507_INSUFFICIENT_STORAGE,
+        # 摄像头：这三条都是"机器人那一侧的状态不满足"，不是请求写错了。
+        # 用 409/503 让前端能区分"重试有用"和"要去本地点一下"。
+        ErrorCode.BACKEND_UNREACHABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
+        ErrorCode.BACKEND_AUTH_FAILED: status.HTTP_502_BAD_GATEWAY,
+        ErrorCode.STREAM_DISABLED: status.HTTP_409_CONFLICT,
+        ErrorCode.CONTROL_CONFLICT: status.HTTP_409_CONFLICT,
     }
     return ApiError(
         mapping.get(error.code, status.HTTP_502_BAD_GATEWAY), error.code, error.message
