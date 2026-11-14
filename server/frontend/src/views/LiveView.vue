@@ -51,7 +51,7 @@ async function refreshStatus() {
   if (!agentId.value) return
   statusLoading.value = true
   try {
-    const { data } = await CameraApi.status(agentId.value, 'ptz')
+    const { data } = await CameraApi.status(agentId.value)
     status.value = data
   } catch (error) {
     status.value = null
@@ -67,7 +67,7 @@ async function refreshStatus() {
 async function loadPresets() {
   if (!agentId.value) return
   try {
-    const { data } = await CameraApi.presets(agentId.value, 'ptz')
+    const { data } = await CameraApi.presets(agentId.value)
     presets.value = data.items || []
   } catch {
     presets.value = []
@@ -78,7 +78,7 @@ function start() {
   if (!agentId.value) return
   if (blockedReason.value) return
   stream.attach(canvasRef.value)
-  stream.connect(liveSocketUrl(agentId.value, 'ptz'))
+  stream.connect(liveSocketUrl(agentId.value))
 }
 
 function restart() {
@@ -99,7 +99,6 @@ async function send(direct, action) {
   sending.value = true
   try {
     await CameraApi.ptz(agentId.value, {
-      cameraId: 'ptz',
       sessionId: sessionId.value || undefined,
       action,
       direct,
@@ -178,7 +177,6 @@ async function gotoPreset(preset) {
   if (!agentId.value) return
   try {
     await CameraApi.gotoPreset(agentId.value, preset.presetId, {
-      cameraId: 'ptz',
       sessionId: sessionId.value || undefined
     })
     ElMessage.success(`已跳转到「${preset.name}」`)
@@ -195,7 +193,7 @@ async function stopWatching() {
   stream.disconnect()
   if (agentId.value) {
     try {
-      await CameraApi.stop(agentId.value, 'ptz')
+      await CameraApi.stop(agentId.value)
     } catch {
       // 停流失败没有可补救的动作：上游会在空闲超时后自己关
     }

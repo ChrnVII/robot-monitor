@@ -27,7 +27,9 @@ router = APIRouter(
     tags=["摄像头"],
 )
 
-DEFAULT_CAMERA_ID = "ptz"
+# 缺省不指定编号：机器人侧的 backend 会把空值解析成默认的球形摄像头。
+# 云端不假设任何具体编号——编号是硬件配置，不属于云端契约。
+DEFAULT_CAMERA_ID = ""
 
 #: 单会话的云台指令时间戳。进程内即可——多 worker 本来就不支持（见 main.py）。
 _ptz_window: dict[str, deque[float]] = {}
@@ -42,7 +44,7 @@ class PtzPayload(BaseModel):
 
 
 def _camera_id(value: str | None) -> str:
-    return (value or DEFAULT_CAMERA_ID).strip() or DEFAULT_CAMERA_ID
+    return (value or DEFAULT_CAMERA_ID).strip()
 
 
 def _features(ctx: Context, agent_id: str) -> list[str]:

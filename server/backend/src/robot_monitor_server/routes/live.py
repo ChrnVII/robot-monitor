@@ -42,7 +42,8 @@ def _json(payload: dict[str, Any]) -> str:
 @router.websocket("/ws/live/{agent_id}")
 async def live_socket(websocket: WebSocket, agent_id: str) -> None:
     ctx = websocket.app.state.ctx
-    camera_id = (websocket.query_params.get("cameraId") or "ptz").strip() or "ptz"
+    # 不传编号 = 默认球形摄像头；云端不替硬件决定编号。
+    camera_id = (websocket.query_params.get("cameraId") or "").strip()
 
     raw = websocket.cookies.get(ctx.settings.cookie_name)
     if await ctx.auth.verify_session(raw) is None:
@@ -90,7 +91,8 @@ async def agent_media_socket(websocket: WebSocket) -> None:
         return
 
     agent_id = str(row["id"])
-    camera_id = (websocket.query_params.get("cameraId") or "ptz").strip() or "ptz"
+    # 不传编号 = 默认球形摄像头；云端不替硬件决定编号。
+    camera_id = (websocket.query_params.get("cameraId") or "").strip()
     session_id = (websocket.query_params.get("sessionId") or "").strip()
     await websocket.accept()
 
