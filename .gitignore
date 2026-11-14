@@ -11,8 +11,6 @@ dist/
 node_modules/
 server/frontend/dist/
 server/frontend/.vite/
-# 开发用自签证书（含私钥，绝不入库）
-server/frontend/.cert/
 
 # 运行时数据，绝不入库
 data/
