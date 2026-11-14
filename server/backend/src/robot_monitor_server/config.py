@@ -91,8 +91,10 @@ class Settings(BaseSettings):
     media_idle_seconds: float = 10.0
     # 单会话最长时长。到点主动结束，防止一路看一天把带宽吃满。
     media_max_session_seconds: float = 1800.0
-    # 等 cloud-agent 把媒体上游接进来的时限。
+    # 云台/预置点这类短指令的时限。
     media_command_timeout: float = 8.0
+    # 建立媒体上游的时限：要等 cloud-agent 连本地预览、拿到首帧，比指令慢。
+    media_start_timeout: float = 12.0
     # 单会话云台指令频率上限（次/秒），防止前端 bug 打爆机器人。
     media_ptz_rate_per_second: int = 20
 

@@ -136,3 +136,37 @@ def test_upstream_close_notifies_viewers() -> None:
         assert hub.status("a1", "ptz")["active"] is False
 
     asyncio.run(scenario())
+
+
+def test_join_failure_removes_phantom_viewer() -> None:
+    """建流失败时观众必须被摘掉，否则人数永远 >0，空闲回收不会触发。"""
+
+    class FailingAgents:
+        async def request(self, *_args, **_kwargs):
+            raise RuntimeError("agent offline")
+
+    async def scenario() -> None:
+        hub = MediaHub(FailingAgents(), settings())
+        with pytest.raises(MediaError) as error:
+            await hub.join("a1", "ptz", object())
+        assert error.value.code == "agent_offline"
+        assert hub.status("a1", "ptz")["active"] is False
+
+    asyncio.run(scenario())
+
+
+def test_close_is_idempotent() -> None:
+    """stop 之后观众再走 leave，不能再给 agent 发一次 stop。"""
+
+    async def scenario() -> None:
+        agents = FakeAgents()
+        hub = MediaHub(agents, settings())
+        session, viewer = await hub.join("a1", "ptz", object())
+        await hub.stop("a1", "ptz")
+        await hub.leave(session, viewer)
+        await asyncio.sleep(0.05)
+
+        stops = [call for call in agents.calls if call[1] == "camera.stream.stop"]
+        assert len(stops) == 1
+
+    asyncio.run(scenario())

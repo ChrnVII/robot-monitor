@@ -53,6 +53,11 @@ def _features(ctx: Context, agent_id: str) -> list[str]:
 def _rate_limit(ctx: Context, key: str) -> None:
     limit = max(1, ctx.settings.media_ptz_rate_per_second)
     now = time.monotonic()
+    # 会话结束不会回调到这里，所以按"最近一分钟没动静"顺手清一批，
+    # 避免长跑进程里这个字典只增不减。
+    if len(_ptz_window) > 256:
+        for stale in [k for k, v in _ptz_window.items() if not v or now - v[-1] > 60]:
+            _ptz_window.pop(stale, None)
     window = _ptz_window.setdefault(key, deque())
     while window and now - window[0] > 1.0:
         window.popleft()
@@ -65,15 +70,18 @@ def _rate_limit(ctx: Context, key: str) -> None:
 
 
 def _session_id(ctx: Context, agent_id: str, camera_id: str, given: str | None) -> str:
+    # 以云端活动会话为准。页面在重连窗口里可能还留着上一轮的 sid，
+    # 拿它去申请租约会换一个 holder，随后撞上"同优先级冲突"，
+    # 表现成莫名其妙的"本地已接管"。
+    active = ctx.media.status(agent_id, camera_id).get("sessionId")
+    if active:
+        return str(active)
     if given:
         return given
-    active = ctx.media.status(agent_id, camera_id).get("sessionId")
-    if not active:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={"code": "no_active_session", "message": "当前没有观看会话，请先打开画面"},
-        )
-    return str(active)
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={"code": "no_active_session", "message": "当前没有观看会话，请先打开画面"},
+    )
 
 
 @router.get("/stream")
@@ -115,7 +123,10 @@ async def ptz(
 ) -> dict[str, Any]:
     camera_id = _camera_id(body.cameraId)
     session_id = _session_id(ctx, agent_id, camera_id, body.sessionId)
-    _rate_limit(ctx, f"{agent_id}:{session_id}")
+    # 停止永远放行：限流只约束"开始动作"，否则用户快速连点后松手会被 429，
+    # 球机就会一直转到 agent 的看护超时。
+    if body.action != "stop" and body.direct != "stop":
+        _rate_limit(ctx, f"{agent_id}:{session_id}")
     result = await ctx.hub.request(
         agent_id,
         CommandName.CAMERA_PTZ,
@@ -128,8 +139,6 @@ async def ptz(
         },
         timeout=ctx.settings.media_command_timeout,
     )
-    if body.action == "stop" or body.direct == "stop":
-        await ctx.auth.audit("web", "camera.ptz.stop", target=agent_id, detail=camera_id)
     return result
 
 

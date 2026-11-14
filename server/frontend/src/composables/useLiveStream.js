@@ -207,7 +207,9 @@ export function useLiveStream() {
       decoder.configure({ codec: codec.value, optimizeForLatency: true })
       needReset = true
     } catch (reason) {
-      onDecoderError(reason)
+      // configure 阶段失败通常是编码不受支持（典型：H.265 在 Chrome）。
+      // 这与"某一帧解不出来"不同，重试没有意义，必须明确告诉人。
+      fail(`当前浏览器无法解码该视频编码（${codec.value}）：${reason?.message || reason}`)
     }
   }
 

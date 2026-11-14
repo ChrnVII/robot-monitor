@@ -188,7 +188,10 @@ async function gotoPreset(preset) {
 }
 
 async function stopWatching() {
+  const wasHolding = Boolean(holding.value)
   clearHold()
+  // 正在转的时候离开页面，先补一条 stop，不要等 agent 的 3 秒看护。
+  if (wasHolding) await send('stop', 'stop')
   stream.disconnect()
   if (agentId.value) {
     try {

@@ -64,6 +64,7 @@ class FrameQueue:
         while len(self._items) >= self._max:
             if not self._evict_video():
                 break
+            self.dropped += 1
         self._items.append(text)
         self._event.set()
 
@@ -74,9 +75,11 @@ class FrameQueue:
             self.dropped += 1
             return
         if len(self._items) >= self._max:
-            self.dropped += 1
             self.need_reset = True
-            if not is_key:
+            self.dropped += 1
+            # 先腾一格出来。腾不出来（队列里全是 JSON）就丢掉这一帧，
+            # 包括关键帧——否则关键帧会在满队列上继续追加，慢慢涨上去。
+            if not self._evict_video():
                 return
         if is_key and self.need_reset:
             frame = bytes([flags | FLAG_RESET]) + frame[1:]
@@ -91,7 +94,6 @@ class FrameQueue:
             if isinstance(item, bytes):
                 del self._items[index]
                 self.need_reset = True
-                self.dropped += 1
                 return True
         return False
 
@@ -125,6 +127,9 @@ class MediaSession:
     #: 已经向 agent 发过 start 的时间。上游是异步接进来的，这中间又来了观众，
     #: 不能重复下发——那会让机器人建两条上游，第二条把第一条顶掉。
     requested_at: float | None = None
+    #: 会话是否已经收尾。收尾必须幂等：stop() 之后观众断开还会再走一次
+    #: leave→idle→_close，不挡住就会给 agent 重复下发 stop。
+    closed: bool = False
     frames: int = 0
     bytes: int = 0
     dropped: int = 0
@@ -147,7 +152,7 @@ class MediaHub:
         async with self._lock:
             key = (agent_id, camera_id)
             session = self._sessions.get(key)
-            if session is None:
+            if session is None or session.closed:
                 session = MediaSession(agent_id=agent_id, camera_id=camera_id)
                 self._sessions[key] = session
             if len(session.viewers) >= self._settings.media_max_viewers:
@@ -161,7 +166,17 @@ class MediaHub:
                     self._expire_later(session), name=f"media-expire-{session.sid}"
                 )
 
-        await self._ensure_upstream(session)
+        try:
+            await self._ensure_upstream(session)
+        except Exception:
+            # 建流失败时观众还没开始发帧就会被关掉，这里必须把它从会话里摘掉。
+            # 留下"幽灵观众"会让看人数永远大于 0，空闲回收也就永不触发。
+            session.viewers.discard(viewer)
+            if not session.viewers:
+                self._sessions.pop((agent_id, camera_id), None)
+                self._cancel(session.expiry_task)
+                session.expiry_task = None
+            raise
         # 先把会话信息与缓存的编码参数塞进队列：后加入的观众不必等下一帧
         # 配置（那是流刚开始时才会发一次的），否则解码器永远 configure 不上。
         viewer.queue.push_text(
@@ -180,7 +195,7 @@ class MediaHub:
     async def leave(self, session: MediaSession, viewer: Viewer) -> None:
         session.viewers.discard(viewer)
         viewer.queue.wake()
-        if session.viewers:
+        if session.closed or session.viewers:
             return
         # 最后一个观众走了：先等一小会儿。刷新页面会瞬间断开再连上，
         # 立刻拆上游会让"刷新一次卡三秒"变成常态。
@@ -214,16 +229,17 @@ class MediaHub:
             return
         if (
             session.requested_at is not None
-            and time.time() - session.requested_at < self._settings.media_command_timeout
+            and time.time() - session.requested_at < self._settings.media_start_timeout
         ):
             return
         session.requested_at = time.time()
         try:
+            # 建流比云台慢：RTSP 握手 + 首帧可能要几秒，这里给的时间也更长。
             await self._agents.request(
                 session.agent_id,
                 CommandName.CAMERA_STREAM_START,
                 {"cameraId": session.camera_id, "sessionId": session.sid},
-                timeout=self._settings.media_command_timeout,
+                timeout=self._settings.media_start_timeout,
             )
         except Exception as exc:  # noqa: BLE001 - 统一翻译成页面能看懂的码
             session.requested_at = None
@@ -259,6 +275,9 @@ class MediaHub:
         观看端不能就这么黑着：发一条 stop，让前端走它自己的退避重连；
         会话移除，下一次有人看会重新拉起上游。
         """
+        if session.closed:
+            return
+        session.closed = True
         self._sessions.pop((session.agent_id, session.camera_id), None)
         self.detach_upstream(session)
         self._cancel(session.expiry_task)
@@ -309,6 +328,11 @@ class MediaHub:
         return {"stopped": True}
 
     async def _close(self, session: MediaSession, *, notify_viewers: bool, reason: str = "closed") -> None:
+        # 幂等：stop() 之后观众断开还会再走一次 leave→idle→_close，
+        # 不挡的话会给 agent 重复下发 stop，日志里全是不存在的会话。
+        if session.closed:
+            return
+        session.closed = True
         self._sessions.pop((session.agent_id, session.camera_id), None)
         self._cancel(session.expiry_task)
         session.expiry_task = None
