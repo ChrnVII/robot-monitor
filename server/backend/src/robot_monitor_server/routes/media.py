@@ -129,7 +129,9 @@ async def _ensure_session(
         await ctx.commands.dispatch(
             agent_id,
             CommandName.CAMERA_STREAM_START,
-            {"camera_id": camera, "profile": profile},
+            # 会话键用 "default" 便于稳定，但下发给 agent 的 camera_id 保持空：
+            # 空 = 本地那台球形相机，具体编号由机器人侧的相机目录决定。
+            {"camera_id": camera_id or "", "profile": profile},
             session_id=session.session_id,
             deadline_seconds=START_TIMEOUT,
             timeout=START_TIMEOUT,
@@ -224,18 +226,14 @@ async def agent_media_socket(websocket: WebSocket) -> None:
         return
 
     session_id = websocket.query_params.get("session_id") or ""
-    session: MediaSession | None = None
     try:
-        session = ctx.media.attach_upstream(session_id, websocket)
+        session = ctx.media.attach_upstream(session_id, websocket, agent_id=agent_id)
     except MediaError as exc:
-        logger.warning("拒绝媒体上游：%s", exc.message)
-        await websocket.close(code=4404, reason=exc.message[:100])
-        return
-
-    if session.agent_id != agent_id:
-        # 一台机器只能推自己的会话。这条不加，被攻破的 agent 能往别人的会话里灌帧。
-        await ctx.media.close(session, "cross_agent_upstream")
-        await websocket.close(code=4403, reason="session belongs to another agent")
+        # 不属于自己的会话用 4403，不存在用 4404：两者对排查的意义不同
+        # （前者是越权/串号，后者是时序问题——会话已被回收）。
+        logger.warning("拒绝媒体上游（%s）：%s", agent_id, exc.message)
+        code = 4403 if exc.code == "cross_agent" else 4404
+        await websocket.close(code=code, reason=exc.message[:100])
         return
 
     logger.info("媒体上游接入：%s session=%s", agent_id, session_id)
@@ -265,7 +263,9 @@ async def agent_media_socket(websocket: WebSocket) -> None:
             # 不推 `t:error`：上游掉线是暂时的，agent 会自己重连。页面靠
             # last_frame_at 的看门狗进入"卡顿/停滞"，这比一条永久错误准确。
             logger.info("媒体上游断开：%s session=%s", agent_id, session_id)
-        await websocket.close(code=1000)
+        # 对端已断时 close 会抛（Starlette 会拒绝二次关闭），这里只是收尾。
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1000)
 
 
 def _on_upstream_text(ctx: AppContext, session: MediaSession, raw: str) -> None:

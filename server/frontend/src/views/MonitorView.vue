@@ -37,7 +37,8 @@ const capabilities = computed(() => device.current?.capabilities || [])
 const canWatch = computed(() => capabilities.value.includes('media.ws.v1'))
 const canControl = computed(() => capabilities.value.includes('camera.ptz'))
 
-const stream = useMediaStream({ agentId, cameraId: 'default' })
+// 不传 cameraId：留空表示"这台设备那台球形相机"，具体编号由机器人侧决定。
+const stream = useMediaStream({ agentId })
 const ptz = usePtz({ agentId, sessionId: () => session.value?.session_id || '' })
 
 const playerPhase = computed(() => stream.phase.value)
@@ -295,6 +296,13 @@ function nudge(direct) {
   window.setTimeout(() => ptz.release(), 220)
 }
 
+function handleClick(direct, event) {
+  // 鼠标/触摸点击已经被 pointerdown/pointerup 处理过（start → stop），
+  // 这里再发一次 nudge 就会变成一对多余的 start/stop——表现是"点一下转两下"。
+  // 只接键盘触发的 click（detail === 0，Enter/Space），那是无障碍路径。
+  if (event?.detail === 0) nudge(direct)
+}
+
 /* ------------------------------ 生命周期 ------------------------------ */
 
 let pollTimer = null
@@ -341,8 +349,14 @@ watch(agentId, () => {
 
 watch(online, (value) => {
   // 离线时断开（省掉一条必然失败的 WS），回来时重新挂画布并连接。
-  if (value) attachCanvas()
-  else stream.detach()
+  if (value) {
+    attachCanvas()
+    return
+  }
+  stream.detach()
+  // 只 detach 不改状态的话，页面会一直显示"直播中"——画布还在、最后一帧还在，
+  // 但连接已经断了。这正是"画面冻了页面还说在播"的老问题。
+  stream.phase.value = 'agent_offline'
 })
 </script>
 
@@ -428,7 +442,7 @@ watch(online, (value) => {
               @pointerdown="hold('up')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('up')"
+              @click="handleClick('up', $event)"
             >
               ↑
             </button>
@@ -437,7 +451,7 @@ watch(online, (value) => {
               @pointerdown="hold('left')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('left')"
+              @click="handleClick('left', $event)"
             >
               ←
             </button>
@@ -447,7 +461,7 @@ watch(online, (value) => {
               @pointerdown="hold('right')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('right')"
+              @click="handleClick('right', $event)"
             >
               →
             </button>
@@ -456,7 +470,7 @@ watch(online, (value) => {
               @pointerdown="hold('down')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('down')"
+              @click="handleClick('down', $event)"
             >
               ↓
             </button>
@@ -465,7 +479,7 @@ watch(online, (value) => {
               @pointerdown="hold('zoom_in')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('zoom_in')"
+              @click="handleClick('zoom_in', $event)"
             >
               ＋
             </button>
@@ -474,7 +488,7 @@ watch(online, (value) => {
               @pointerdown="hold('zoom_out')"
               @pointerup="letGo"
               @pointerleave="letGo"
-              @click="nudge('zoom_out')"
+              @click="handleClick('zoom_out', $event)"
             >
               －
             </button>

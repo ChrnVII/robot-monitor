@@ -79,7 +79,13 @@ class EventStore:
         limit: int = 200,
         event_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """按游标拉取。游标是"我看到了 seq=N"，返回 > N 的记录。"""
+        """按游标拉取。游标是"我看到了 seq=N"，返回 > N 的记录。
+
+        注意 **event_seq 是设备内序号**，不是全局序号。所以：
+        - 带 `agent_id` 查询时是严格的时间线，游标语义正确；
+        - 不带 `agent_id` 时多条设备的时间线会交错，此时按"收到时间"排序，
+          游标只用来过滤，不能当成"全局进度"。
+        """
         sql = (
             "SELECT agent_id, event_seq, event_id, event_type, occurred_at, received_at,"
             " payload_json FROM device_events WHERE event_seq > ?"
@@ -91,7 +97,7 @@ class EventStore:
         if event_type:
             sql += " AND event_type = ?"
             params.append(event_type)
-        sql += " ORDER BY event_seq LIMIT ?"
+        sql += " ORDER BY event_seq LIMIT ?" if agent_id else " ORDER BY received_at LIMIT ?"
         params.append(max(1, min(limit, 500)))
 
         rows = await self.db.fetchall(sql, tuple(params))

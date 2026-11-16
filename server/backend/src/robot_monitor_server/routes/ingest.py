@@ -31,7 +31,8 @@ router = APIRouter(tags=["内部"])
 class EventBatch(BaseModel):
     agent_id: str | None = Field(default=None, max_length=64)
     cursor: int = Field(default=0, ge=0)
-    batch: list[dict[str, Any]] = Field(default_factory=list)
+    # 上限与 agent 的 BATCH_LIMIT 对齐：再大就不再是"批量"，而是一次灌库。
+    batch: list[dict[str, Any]] = Field(default_factory=list, max_length=500)
 
 
 @router.post("/internal/events")

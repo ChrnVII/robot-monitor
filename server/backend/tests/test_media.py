@@ -229,6 +229,44 @@ async def test_send_control_without_upstream_is_false():
     assert await registry.send_control(session, "keyframe") is False
 
 
+async def test_upstream_from_another_agent_is_refused_without_side_effects():
+    """越权接入必须在校验阶段就被挡住，不能"先挂上再关掉"。
+
+    先挂上再检查，等于给任何一台已注册设备一个 DDoS 开关：随便报一个别人的
+    session_id，那条会话就会被云端关掉（连它的观众一起）。
+    """
+    from robot_monitor_server.media import MediaError
+
+    registry = MediaRegistry()
+    session = registry.create("b-1", "VAR-1")
+    owner_upstream = object()
+    session.upstream = owner_upstream  # type: ignore[assignment]
+
+    with pytest.raises(MediaError) as raised:
+        registry.attach_upstream("ignored", object(), agent_id="b-2")  # type: ignore[arg-type]
+
+    assert raised.value.code == "unknown_session"      # 先查会话存在
+    with pytest.raises(MediaError) as raised:
+        registry.attach_upstream(session.session_id, object(), agent_id="b-2")  # type: ignore[arg-type]
+    assert raised.value.code == "cross_agent"
+
+    # 原会话毫发无损：上游没被替换、也没被关闭
+    assert session.upstream is owner_upstream
+    assert registry.get("b-1", "VAR-1") is session
+
+
+async def test_owner_can_attach_and_replace_its_own_upstream():
+    registry = MediaRegistry()
+    session = registry.create("b-1", "VAR-1")
+
+    first = object()
+    registry.attach_upstream(session.session_id, first, agent_id="b-1")  # type: ignore[arg-type]
+    second = object()
+    registry.attach_upstream(session.session_id, second, agent_id="b-1")  # type: ignore[arg-type]
+
+    assert session.upstream is second
+
+
 # --- 命令服务 -----------------------------------------------------------
 
 

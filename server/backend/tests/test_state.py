@@ -84,6 +84,57 @@ async def test_versions_are_per_device():
     assert (await store.get("b-2")).state_version == 1
 
 
+async def test_device_restart_is_accepted_even_with_a_lower_version():
+    """agent 重启后版本从 1 重来：这不是乱序，必须接受。
+
+    不认这一点的后果：云端永久拒收该设备之后的所有状态帧，页面停在最后一个
+    值上再也不会更新——而且日志里只有 stale_dropped 在涨，看不出是重启。
+    """
+    store = MemoryStateStore()
+    await store.put("b-1", {**frame(5000), "epoch": "run-old"})
+
+    assert await store.put("b-1", {**frame(1), "epoch": "run-new"}) is True
+
+    record = await store.get("b-1")
+    assert record.state_version == 1
+    assert record.epoch == "run-new"
+    assert store.restarts == 1
+    assert store.stale_dropped == 0
+
+
+async def test_same_epoch_still_rejects_older_frames():
+    """同一次运行内的乱序仍然要丢：epoch 只用来区分重启，不是万能通行证。"""
+    store = MemoryStateStore()
+    await store.put("b-1", {**frame(102), "epoch": "run-1"})
+
+    assert await store.put("b-1", {**frame(101), "epoch": "run-1"}) is False
+    assert (await store.get("b-1")).state_version == 102
+    assert store.stale_dropped == 1
+
+
+async def test_upgrade_from_an_epochless_agent_is_accepted():
+    """设备从"不带 epoch"的旧版本升级上来，版本从 1 重新开始。
+
+    这条以前会永久卡死：现存记录没有 epoch，按"同一次运行"比较版本，
+    1 永远小于旧记录里的 5000，于是升级后的所有状态都被丢掉。
+    """
+    store = MemoryStateStore()
+    await store.put("b-1", frame(5000))          # 旧版本：没有 epoch
+
+    assert await store.put("b-1", {**frame(1), "epoch": "run-new"}) is True
+    assert (await store.get("b-1")).state_version == 1
+    assert store.restarts == 1
+
+
+async def test_old_agent_without_epoch_keeps_old_behaviour():
+    """老 agent 不带 epoch：不能因此把它当成"每次都是重启"而全部放行。"""
+    store = MemoryStateStore()
+    await store.put("b-1", frame(10))
+
+    assert await store.put("b-1", frame(9)) is False
+    assert store.restarts == 0
+
+
 # --- 非法帧 -------------------------------------------------------------
 
 

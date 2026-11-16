@@ -2,9 +2,11 @@
 
 三条规则（方案 §6.2），每一条都对应一类"页面在骗人"的事故：
 
-1. **版本单调。** 机器人递增 `state_version`，云端只接受 `>` 当前版本。没有
-   这条，101/102 乱序到达就会把界面刷回旧值，而且看不出错——数字都是"合法的"。
-   全量快照与增量共用同一套版本，否则切换形态时会出现假的新鲜度。
+1. **版本单调，但以"一次运行"为界。** 机器人递增 `state_version`，云端只接受
+   `>` 当前版本。没有这条，101/102 乱序到达就会把界面刷回旧值，而且看不出
+   错——数字都是"合法的"。全量快照与增量共用同一套版本。
+   边界情况是**设备重启**：版本从 1 重新开始，这不是乱序。所以帧里带一个
+   `epoch`（进程启动时生成的标识），epoch 变了就接受新版本序列并计入 restart。
 
 2. **采集时间与接收时间分开。** `observed_at` 是机器人采集的时刻，
    `received_at` 是云端收到的时刻。两者之差就是页面要显示的"数据延迟"。
@@ -44,6 +46,9 @@ class StateRecord:
     observed_at: float
     received_at: float
     state: dict[str, Any] = field(default_factory=dict)
+    #: 设备那一次运行的标识（agent 进程启动时生成）。
+    #: 老 agent 不带这个字段，此时为空串，退回"只比版本"的老逻辑。
+    epoch: str = ""
 
     def freshness(self, now: float | None = None) -> str:
         age = (now if now is not None else time.time()) - self.observed_at
@@ -59,6 +64,7 @@ class StateRecord:
         return {
             "agent_id": self.agent_id,
             "state_version": self.state_version,
+            "epoch": self.epoch,
             "observed_at": self.observed_at,
             "received_at": self.received_at,
             "age_ms": round(max(0.0, moment - self.observed_at) * 1000),
@@ -106,6 +112,8 @@ class MemoryStateStore:
         self.stale_dropped = 0
         #: 缺少 state_version / observed_at 的帧数。这类帧无法比较新旧，只能拒绝。
         self.rejected = 0
+        #: 检测到设备重启（epoch 变化）的次数。不是错误，是事实。
+        self.restarts = 0
 
     async def put(self, agent_id: str, state: dict[str, Any]) -> bool:
         version = state.get("state_version")
@@ -120,8 +128,21 @@ class MemoryStateStore:
             self.rejected += 1
             return False
 
+        epoch = state.get("epoch")
+        epoch_value = epoch if isinstance(epoch, str) else ""
+
         current = self._items.get(agent_id)
-        if current is not None and version <= current.state_version:
+        # 条件只看"新帧带不带 epoch、和现存的是否不同"：
+        # 现存记录为空说明那是**升级前**的数据，版本体系已经不可比了，
+        # 必须接受新序列，否则从老版本升级上来的设备会永久停在旧状态。
+        restarted = (
+            current is not None and bool(epoch_value) and current.epoch != epoch_value
+        )
+        if restarted:
+            # 设备换了一次运行：版本归零是**正常**的。不认这一点，agent 一重启，
+            # 云端就会把它之后的所有状态都当旧帧扔掉，页面从此不再更新。
+            self.restarts += 1
+        elif current is not None and version <= current.state_version:
             self.stale_dropped += 1
             return False
 
@@ -131,6 +152,7 @@ class MemoryStateStore:
             observed_at=float(observed_at),
             received_at=time.time(),
             state=dict(state),
+            epoch=epoch_value,
         )
         return True
 
@@ -155,12 +177,14 @@ class MemoryStateStore:
             or isinstance(observed_at, bool)
         ):
             return False
+        epoch = state.get("epoch")
         self._items[agent_id] = StateRecord(
             agent_id=agent_id,
             state_version=version,
             observed_at=float(observed_at),
             received_at=received_at if received_at is not None else time.time(),
             state=dict(state),
+            epoch=epoch if isinstance(epoch, str) else "",
         )
         return True
 
@@ -176,4 +200,5 @@ class MemoryStateStore:
             "agents": len(self._items),
             "stale_dropped": self.stale_dropped,
             "rejected": self.rejected,
+            "restarts": self.restarts,
         }

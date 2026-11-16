@@ -241,9 +241,19 @@ export function useMediaStream(options = {}) {
     }
   }
 
+  function clearStable() {
+    if (stableTimer) {
+      window.clearTimeout(stableTimer)
+      stableTimer = null
+    }
+  }
+
   function scheduleReconnect(reason) {
     if (disposed || permanent.value) return
     clearReconnect()
+    // 连接已经断了，"稳定计时"必须作废。否则一个连上就断的连接会在
+    // 10s 后被误判成"稳定"，把退避清零，退化成每秒重试。
+    clearStable()
     const jitter = 0.5 + Math.random() // base * 2^n * (0.5~1.5)
     const delay = Math.min(RECONNECT_BASE * 2 ** reconnectAttempts * jitter, RECONNECT_MAX)
     reconnectAttempts += 1
@@ -380,7 +390,7 @@ export function useMediaStream(options = {}) {
       phase.value = 'waiting'
       // 注意：这里**不**清零退避。清零的条件是"稳定 10s 并且真的在放"——
       // 用 onopen 清零会让"连上就断"以 1s 的节奏无限重试。
-      if (stableTimer) window.clearTimeout(stableTimer)
+      clearStable()
       stableTimer = window.setTimeout(() => {
         if (!disposed && firstFrameAt && phase.value === 'live') reconnectAttempts = 0
       }, STABLE_AFTER)
@@ -429,10 +439,7 @@ export function useMediaStream(options = {}) {
   function detach() {
     closeSocket()
     clearReconnect()
-    if (stableTimer) {
-      window.clearTimeout(stableTimer)
-      stableTimer = null
-    }
+    clearStable()
     if (framePending) {
       try {
         framePending.close()

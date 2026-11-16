@@ -95,8 +95,17 @@ class Viewer:
             self.queue.put_nowait(frame)
 
     def offer_text(self, message: dict[str, Any]) -> None:
-        """config/error/stats 这类文本消息。满了丢最旧的——只会丢掉过期的统计。"""
-        if self.notes.full():
+        """config/error/stats 这类文本消息。
+
+        队列满时丢最旧的，但 **config 与 error 例外**：它们决定播放器能不能
+        起步/怎么报错，被一条过期的统计挤掉，观众就会一直停在"等待画面"。
+        """
+        critical = message.get("t") in ("config", "error")
+        if critical:
+            while not self.notes.empty():
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    self.notes.get_nowait()
+        elif self.notes.full():
             with contextlib.suppress(asyncio.QueueEmpty):
                 self.notes.get_nowait()
         with contextlib.suppress(asyncio.QueueFull):
@@ -254,10 +263,23 @@ class MediaRegistry:
         )
         return session
 
-    def attach_upstream(self, session_id: str, websocket: WebSocket) -> MediaSession:
+    def attach_upstream(
+        self, session_id: str, websocket: WebSocket, *, agent_id: str
+    ) -> MediaSession:
+        """上游接入。**先校验归属，再替换连接**。
+
+        顺序很关键：如果先挂上去再检查"这台设备是不是会话的主人"，那么任何一台
+        已注册设备只要拿到别人的 session_id，就能让云端把那条会话整个关掉——
+        一次越权请求变成一次拒绝服务。所以归属检查必须在校验阶段完成，
+        失败时不留任何痕迹。
+        """
         session = self._by_id.get(session_id)
         if session is None:
             raise MediaError("unknown_session", f"没有这个媒体会话：{session_id}")
+        if agent_id and session.agent_id != agent_id:
+            raise MediaError(
+                "cross_agent", f"会话 {session_id} 属于另一台设备，拒绝接入"
+            )
         previous, session.upstream = session.upstream, websocket
         if previous is not None and previous is not websocket:
             logger.info("会话 %s 的上游被新连接替换", session_id)
