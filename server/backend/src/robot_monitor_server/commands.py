@@ -52,6 +52,14 @@ class CommandStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+#: 需要"同一目标只保留一条在途"的命令（方案 §5.5）。
+#:
+#: 只有云台方向键属于这一类：按住方向键时前端每 1.5s 一条 keepalive，弱网下
+#: 会并发堆在连接上，最后谁先到完全随机——表现是"松开 5 秒后球机还在转"。
+#: 预置点与快照**不能**这样合并：它们是各自独立的动作，合并等于静默丢掉请求。
+COALESCED_COMMANDS: frozenset[CommandName] = frozenset({CommandName.CAMERA_PTZ})
+
+
 #: agent 侧错误码 → 云端命令终态。没有列出的（如 internal）算 failed。
 _STATUS_BY_CODE = {
     ErrorCode.AGENT_OFFLINE: CommandStatus.FAILED.value,
@@ -73,6 +81,11 @@ class CommandService:
         self.hub = hub
         #: (agent, session, target) → 最后用过的序号。单调递增，不重用。
         self._sequences: dict[tuple[str, str, str], int] = {}
+        #: 同一目标上的串行闸门与代号，实现"只保留一条在途命令"。
+        self._gates: dict[tuple[str, str, str], asyncio.Lock] = {}
+        self._generations: dict[tuple[str, str, str], int] = {}
+        #: 被更新的一条覆盖掉的命令数。这是设计行为，不是错误。
+        self.superseded = 0
         #: request_id → 等图的 Future。
         self._images: dict[str, asyncio.Future[tuple[bytes, dict[str, Any]]]] = {}
 
@@ -86,6 +99,9 @@ class CommandService:
     def forget_session(self, agent_id: str, session_id: str) -> None:
         for key in [k for k in self._sequences if k[0] == agent_id and k[1] == session_id]:
             self._sequences.pop(key, None)
+        for store in (self._gates, self._generations):
+            for key in [k for k in store if k[0] == agent_id and k[1] == session_id]:
+                store.pop(key, None)
 
     def envelope(
         self,
@@ -108,6 +124,11 @@ class CommandService:
             "target": target,
             "issued_at": now,
             "deadline": now + deadline_seconds,
+            # 设备侧的幂等键（方案 §5.1）。必须是**同一条命令重发时不变**的值，
+            # 否则设备层去重形同虚设——云台会按重发次数转好几下。
+            # 用「动作 + command_id」而不是随机串：既稳定，也能在 command_log
+            # 里一眼看出这条是什么。
+            "idempotency_key": f"{action}-{identifier}",
             "trace_id": trace_id or f"tr-{identifier[:8]}",
         }
 
@@ -146,8 +167,72 @@ class CommandService:
             1.0, envelope["deadline"] - time.time()
         ) + 2.0
 
+        if command in COALESCED_COMMANDS:
+            return await self._dispatch_coalesced(
+                envelope, command, agent_id=agent_id, session_id=session_id,
+                target=target, limit=limit,
+            )
+        return await self._send(envelope, command, limit)
+
+    async def _dispatch_coalesced(
+        self,
+        envelope: dict[str, Any],
+        command: CommandName,
+        *,
+        agent_id: str,
+        session_id: str,
+        target: str,
+        limit: float,
+    ) -> dict[str, Any]:
+        """同一 (agent, session, target) 只保留一条在途命令（方案 §5.5）。
+
+        做法是"串行闸门 + 代号"：每条命令进来先领一个代号，拿到闸门后如果发现自己
+        已经不是最新的那条，就**不下发**并回 `stale`。于是：
+
+        - 在途永远只有一条（闸门串行）；
+        - 排队期间被更新方向覆盖掉的旧命令直接丢弃，而不是补发一堆过期方向
+          （弱网恢复瞬间的"抽搐"就是这么来的）。
+
+        返回 `stale` 不是错误：它的语义是"这条已经被更新的一条替代了，什么都不用做"，
+        与 agent 侧 `is_stale` 的判定是同一个词。
+        """
+        key = (agent_id, session_id or "-", target)
+        generation = self._generations[key] = self._generations.get(key, 0) + 1
+        gate = self._gates.setdefault(key, asyncio.Lock())
+        async with gate:
+            if generation != self._generations[key]:
+                self.superseded += 1
+                status = CommandStatus.REJECTED.value
+                await self._log(
+                    envelope, command, status, error_code=ErrorCode.STALE.value
+                )
+                raise ApiError(
+                    409,
+                    ErrorCode.STALE,
+                    "已被更新的一条命令覆盖，本条未下发",
+                    data={
+                        "command_id": envelope["command_id"],
+                        "state": status,
+                        "trace_id": envelope["trace_id"],
+                    },
+                )
+            return await self._send(envelope, command, limit)
+
+    async def _send(
+        self, envelope: dict[str, Any], command: CommandName, limit: float
+    ) -> dict[str, Any]:
+        """真正下发并等待终态：信封、等待、终态收敛都在这里。"""
+        await self._log(envelope, command, CommandStatus.DISPATCHED)
         try:
-            result = await self.hub.request(agent_id, command, envelope, timeout=limit)
+            result = await self.hub.request(
+                envelope["agent_id"],
+                command,
+                envelope,
+                timeout=limit,
+                # 帧 id 与信封的 command_id 同值（方案 §5.1）：一条命令在两端
+                # 只有这一个标识，agent 的去重表、事件、云端 command_log 都对得上。
+                request_id=envelope["command_id"],
+            )
         except AgentError as exc:
             status = _STATUS_BY_CODE.get(exc.code)
             if status is None:

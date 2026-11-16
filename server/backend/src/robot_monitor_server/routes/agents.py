@@ -68,6 +68,9 @@ async def list_agents(ctx: Context) -> dict[str, Any]:
                 "media_profiles": (runtime or {}).get("media_profiles")
                 if runtime is not None
                 else _parse_list(row["media_profiles"]),
+                # 自述上行上限只在连接期有意义（老构建没有这个字段）：
+                # 离线时给 null，而不是 0，页面据此区分"没声明"和"声明了 0"。
+                "max_frame_kbps": (runtime or {}).get("max_frame_kbps"),
                 "last_seen": (runtime or {}).get("last_seen") or row["last_seen"],
                 "connected_at": (runtime or {}).get("connected_at"),
                 "revoked": row["revoked_at"] is not None,

@@ -206,6 +206,26 @@
       }
     },
     {
+      "name": "command_camera_preset_list",
+      "description": "预置点清单。只读、幂等、可随意重试；camera_id 留空表示本机缺省球形相机",
+      "frame": {
+        "v": 1,
+        "type": "command",
+        "id": "bb22cc33dd44ee55",
+        "command": "camera.preset.list",
+        "payload": {
+          "command_id": "bb22cc33dd44ee55",
+          "session_id": "ctl-7f3a",
+          "sequence": 1028,
+          "camera_id": "",
+          "issued_at": 1761033602.6,
+          "deadline": 1761033608.6,
+          "trace_id": "tr-9a1c"
+        },
+        "ts": 1761033602.6
+      }
+    },
+    {
       "name": "command_camera_stream_start",
       "description": "建立媒体会话。回包只带 codec/size，真正的帧走 /ws/agent/media",
       "frame": {
@@ -223,6 +243,25 @@
           "trace_id": "tr-9a1c"
         },
         "ts": 1761033600.0
+      }
+    },
+    {
+      "name": "command_camera_stream_stop",
+      "description": "结束媒体会话。幂等：会话已经不在了也回成功，好让会话状态机收敛",
+      "frame": {
+        "v": 1,
+        "type": "command",
+        "id": "5f6e7d8c9b0a5678",
+        "command": "camera.stream.stop",
+        "payload": {
+          "command_id": "5f6e7d8c9b0a5678",
+          "session_id": "med-4b21",
+          "camera_id": "VAR-1",
+          "issued_at": 1761033609.0,
+          "deadline": 1761033614.0,
+          "trace_id": "tr-9a1c"
+        },
+        "ts": 1761033609.0
       }
     },
     {

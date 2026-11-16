@@ -25,7 +25,13 @@ from robot_monitor_server.protocol import Message, MessageType
 PASSWORD = "ws-state-123"
 
 
-def bootstrap(tmp_path, *, capabilities: list[str] | None, profiles: list[str] | None):
+def bootstrap(
+    tmp_path,
+    *,
+    capabilities: list[str] | None,
+    profiles: list[str] | None,
+    max_frame_kbps: object = None,
+):
     settings = Settings(
         data_dir=tmp_path / "data",
         storage_dir=tmp_path / "storage",
@@ -57,6 +63,8 @@ def bootstrap(tmp_path, *, capabilities: list[str] | None, profiles: list[str] |
         payload["capabilities"] = capabilities
     if profiles is not None:
         payload["media_profiles"] = profiles
+    if max_frame_kbps is not None:
+        payload["max_frame_kbps"] = max_frame_kbps
     hello = Message(type=MessageType.HELLO, agent_id=agent_id, payload=payload)
     return app, agent_id, token, hello
 
@@ -187,3 +195,68 @@ def test_metrics_expose_state_freshness_and_control_counters(tmp_path):
         assert entry["state_version"] == 1
         assert entry["freshness"] == "fresh"
         assert entry["state_freshness_ms"] >= 0
+
+
+def test_hello_max_frame_kbps_is_parsed_and_sanitised(tmp_path):
+    """能力协商里的自述上限（方案 §8.2）：合法值透出，非法值当"没声明"。
+
+    不兜底的话，一个手写的 hello 就能把页面上的档位选择器撑成天文数字；
+    而把非法值落成 0 又会让页面以为"这台机器一 kbps 都推不了"。
+    """
+    app, _agent_id, token, hello = bootstrap(
+        tmp_path, capabilities=["media.ws.v1"], profiles=["low"], max_frame_kbps=2000
+    )
+
+    with TestClient(app) as client:
+        login(client)
+        with client.websocket_connect(
+            "/ws/agent", headers={"Authorization": f"Bearer {token}"}
+        ) as ws:
+            ws.send_text(hello.to_json())
+            assert json.loads(ws.receive_text())["type"] == "ack"
+
+            listed = wait_for(lambda: first_agent(client))
+            assert listed["max_frame_kbps"] == 2000
+
+
+def test_hello_without_max_frame_kbps_reports_zero(tmp_path):
+    app, _agent_id, token, hello = bootstrap(tmp_path, capabilities=[], profiles=[])
+
+    with TestClient(app) as client:
+        login(client)
+        with client.websocket_connect(
+            "/ws/agent", headers={"Authorization": f"Bearer {token}"}
+        ) as ws:
+            ws.send_text(hello.to_json())
+            assert json.loads(ws.receive_text())["type"] == "ack"
+
+            listed = wait_for(lambda: first_agent(client))
+            assert listed["max_frame_kbps"] == 0
+
+
+def test_ptz_with_bad_arguments_is_a_request_error_not_a_fake_success(tmp_path):
+    """云台参数不合法必须是 400 + invalid_arguments。
+
+    以前回 200 + `state=rejected`：命令日志里没有记录、页面拿不到错误码，
+    排障时只能看到"点了没反应"。方案的命令状态机里 `rejected` 是明确终态，
+    要有 code、要被审计。
+    """
+    app, agent_id, token, hello = bootstrap(tmp_path, capabilities=["camera.ptz"], profiles=["low"])
+
+    with TestClient(app) as client:
+        login(client)
+        with client.websocket_connect(
+            "/ws/agent", headers={"Authorization": f"Bearer {token}"}
+        ) as ws:
+            ws.send_text(hello.to_json())
+            assert json.loads(ws.receive_text())["type"] == "ack"
+
+            # keepalive 不带方向：调用方漏传当前方向，明确拒绝（不能把球机停掉）
+            response = client.post(
+                f"/api/v1/agents/{agent_id}/camera/ptz",
+                json={"action": "keepalive", "direct": "stop"},
+            )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "invalid_arguments"
+    assert "keepalive" in response.json()["message"]

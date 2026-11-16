@@ -51,6 +51,14 @@ export function usePtz({ agentId, sessionId } = {}) {
     } catch (error) {
       const status = error?.response?.status
       const body = error?.response?.data || {}
+      const code = body?.code || body?.data?.state
+      // `stale` 不是错误：按住方向键时云端在途只保留一条，排队期间被新方向
+      // 覆盖掉的那条回的就是 stale。把它显示成"失败"只会让用户以为云台坏了。
+      if (code === 'stale') {
+        lastState.value = 'rejected'
+        lastError.value = ''
+        return
+      }
       lastState.value = body?.data?.state || (status === 504 ? 'unknown' : 'failed')
       lastError.value =
         status === 504

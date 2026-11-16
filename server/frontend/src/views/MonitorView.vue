@@ -11,6 +11,7 @@ import { errorMessage } from '../api/client'
 import { useDeviceStore } from '../stores/device'
 import { useMediaStream } from '../composables/useMediaStream'
 import { usePtz } from '../composables/usePtz'
+import { useLiveEvents } from '../composables/useLiveEvents'
 
 const device = useDeviceStore()
 const canvasRef = ref(null)
@@ -40,6 +41,7 @@ const canControl = computed(() => capabilities.value.includes('camera.ptz'))
 // 不传 cameraId：留空表示"这台设备那台球形相机"，具体编号由机器人侧决定。
 const stream = useMediaStream({ agentId })
 const ptz = usePtz({ agentId, sessionId: () => session.value?.session_id || '' })
+const { on: onLiveEvent } = useLiveEvents()
 
 const playerPhase = computed(() => stream.phase.value)
 const showSnapshot = computed(
@@ -116,6 +118,27 @@ async function loadState() {
     // 拉不到状态不影响画面：状态和媒体是两条独立链路，页面也不该一起坏掉。
     stateView.value = null
   }
+}
+
+/**
+ * 状态走 SSE 实时推（方案 §3.3：状态订阅用 SSE，REST 只做全量对账）。
+ *
+ * 只做一件事：把**更新版本**的状态盖上去。SSE 与 5s 轮询可能交错到达，
+ * 而且 SSE 不重放——所以轮询保留，断线期间的变化靠它补齐（与文件任务靠
+ * `GET /tasks` 对账是同一套约定）。
+ *
+ * `age_ms` / `freshness` 是服务端在**推送那一刻**算的，这里不重算（前端的时钟
+ * 不可信，也不该出现第二套新鲜度算法）。设备停止上报时，最迟在下一次 5s
+ * 对账里降级——这个上界由轮询周期决定，不是由 SSE 决定。
+ */
+function applyStatePush(view) {
+  if (!view || view.agent_id !== agentId.value) return
+  const incoming = view.state_version
+  const current = stateView.value?.state_version
+  if (typeof incoming === 'number' && typeof current === 'number' && incoming <= current) {
+    return
+  }
+  stateView.value = view
 }
 
 async function loadSession() {
@@ -306,6 +329,8 @@ function handleClick(direct, event) {
 /* ------------------------------ 生命周期 ------------------------------ */
 
 let pollTimer = null
+//: SSE 的退订函数。全局连接由 AppLayout 持有，这里只订阅自己关心的那类事件。
+let offState = null
 
 function attachCanvas() {
   // 画面可用才连：不支持媒体上行的设备不该出现一条永远转圈的 WS。
@@ -317,6 +342,9 @@ function attachCanvas() {
 onMounted(async () => {
   await device.load()
   attachCanvas()
+  offState = onLiveEvent((event) => {
+    if (event.type === 'state') applyStatePush(event.data)
+  })
   loadState()
   loadSession()
   loadPresets()
@@ -330,6 +358,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (pollTimer) window.clearInterval(pollTimer)
+  offState?.()
+  offState = null
   stopSnapshotLoop()
   if (snapshotUrl.value) URL.revokeObjectURL(snapshotUrl.value)
 })

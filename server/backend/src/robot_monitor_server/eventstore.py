@@ -20,7 +20,8 @@ from .db import Database
 
 logger = logging.getLogger("robot-monitor.events")
 
-#: 单批上限。与 agent 侧的 BATCH_LIMIT 对齐，略有余量。
+#: 单批上限。与 agent 侧的 BATCH_LIMIT（50）对齐并留足余量：
+#: 超过这个量的批次一律**拒绝**，而不是静默截断。
 MAX_BATCH = 200
 
 
@@ -34,19 +35,26 @@ class EventStore:
         batch: list[dict[str, Any]],
         cursor: int = 0,
     ) -> dict[str, Any]:
-        """收一批事件，返回 {acked_seq, duplicates, received}。"""
+        """收一批事件，返回 {acked_seq, duplicates, received, dropped}。
+
+        `received` 是**真的入库了**的条数（不含重复、不含无序号被跳过的），
+        `dropped` 是客户端发了但服务端没要的条数。两者分开报，否则机器人会
+        以为"发出去 50 条收到了 50 条"，而缺口其实一直在，只是没人报。
+        """
         if not batch:
-            return {"acked_seq": cursor, "duplicates": 0, "received": 0}
+            return {"acked_seq": cursor, "duplicates": 0, "received": 0, "dropped": 0}
 
         now = time.time()
         duplicates = 0
+        received = 0
+        dropped = 0
         acked = cursor
         async with self.db.write_transaction() as conn:
             for item in batch[:MAX_BATCH]:
                 seq = _as_int(item.get("event_seq"))
                 if seq is None:
-                    # 没有序号的记录无法去重也无法推进游标：整条跳过，
-                    # 但会计入 received，让机器人看到"发了但没收"。
+                    # 没有序号的记录无法去重也无法推进游标：整条跳过并计入 dropped。
+                    dropped += 1
                     continue
                 event_id = str(item.get("event_id") or f"{agent_id}-{seq}")
                 payload = item.get("payload")
@@ -68,8 +76,17 @@ class EventStore:
                 )
                 if cursor_row.rowcount == 0:
                     duplicates += 1
+                else:
+                    received += 1
                 acked = max(acked, seq)
-        return {"acked_seq": acked, "duplicates": duplicates, "received": len(batch)}
+            # 超出单批上限的部分没有处理：不推进游标，让机器人下一轮再发。
+            dropped += max(0, len(batch) - MAX_BATCH)
+        return {
+            "acked_seq": acked,
+            "duplicates": duplicates,
+            "received": received,
+            "dropped": dropped,
+        }
 
     async def query(
         self,

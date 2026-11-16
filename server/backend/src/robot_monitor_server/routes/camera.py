@@ -23,7 +23,8 @@ from pydantic import BaseModel, Field
 
 from ..commands import CommandService
 from ..deps import Context, SessionToken, require_session
-from ..protocol import CommandName
+from ..errors import ApiError
+from ..protocol import CommandName, ErrorCode
 
 router = APIRouter(
     prefix="/api/v1/agents/{agent_id}/camera",
@@ -89,7 +90,11 @@ async def ptz(
 ) -> dict[str, Any]:
     payload, error = ptz_payload(body.action, body.direct, body.speed)
     if payload is None:
-        return {"command_id": None, "state": "rejected", "error": error}
+        # 参数不合法是**请求错误**，不是一次"成功的命令"。
+        # 以前这里回 200 + `state=rejected`：命令日志里没有记录、前端拿不到
+        # 错误码、排障时只能看到"点了没反应"。方案的命令状态机里 `rejected`
+        # 是一个明确的终态，必须带着 code 走正常错误路径。
+        raise ApiError(400, ErrorCode.INVALID_ARGUMENTS, error or "云台参数不合法")
     return await _service(ctx).dispatch(
         agent_id,
         CommandName.CAMERA_PTZ,

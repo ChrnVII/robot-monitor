@@ -277,9 +277,13 @@ class FakeHub:
         self.outcome = outcome
         self.result = result if result is not None else {"ok": True}
         self.payloads: list[dict] = []
+        self.request_ids: list[str | None] = []
 
-    async def request(self, agent_id, command, payload=None, *, timeout=None):
+    async def request(
+        self, agent_id, command, payload=None, *, timeout=None, request_id=None
+    ):
         self.payloads.append(dict(payload or {}))
+        self.request_ids.append(request_id)
         if self.outcome is not None:
             raise self.outcome
         return self.result
@@ -314,6 +318,9 @@ async def test_envelope_has_monotonic_sequence(service_factory):
     assert other["sequence"] == 1          # 另一个会话自己数
     assert first["deadline"] > first["issued_at"]
     assert first["trace_id"].startswith("tr-")
+    # 幂等键按命令稳定（方案 §5.1）：同一条命令重发时键不变，设备层才能去重
+    assert first["idempotency_key"] == f"camera.ptz-{first['command_id']}"
+    assert first["idempotency_key"] != second["idempotency_key"]
 
 
 async def test_sequence_is_not_reused_after_session_forget(service_factory):
@@ -383,6 +390,113 @@ async def test_envelope_cannot_be_overridden_by_payload(service_factory):
 
     assert hub.payloads[0]["sequence"] == 1
     assert hub.payloads[0]["command_id"] == "real-id"
+
+
+async def test_frame_id_equals_command_id(service_factory):
+    """线上帧 id 必须与信封 `command_id` 一致（方案 §5.1）。
+
+    不一致时，一条命令在日志里有两个标识：云端 `command_log.command_id` 是一个，
+    机器人去重表/事件里是另一个。出了"点了没反应"就只能在两张表之间靠时间戳猜。
+    """
+    hub = FakeHub()
+    service = await service_factory(hub)
+
+    result = await service.dispatch("b-1", CommandName.CAMERA_PTZ, {"direct": "left"})
+
+    assert hub.request_ids == [result["command_id"]]
+    assert hub.payloads[0]["command_id"] == hub.request_ids[0]
+
+
+# --- 云台的"单条在途"合并（方案 §5.5）---------------------------------
+
+
+class SlowHub(FakeHub):
+    """记录并发峰值：同一目标上不能出现两条在途命令。"""
+
+    def __init__(self, delay: float = 0.05) -> None:
+        super().__init__()
+        self.delay = delay
+        self.directions: list[str] = []
+        self.in_flight = 0
+        self.peak = 0
+
+    async def request(
+        self, agent_id, command, payload=None, *, timeout=None, request_id=None
+    ):
+        self.directions.append(str((payload or {}).get("direct")))
+        self.in_flight += 1
+        self.peak = max(self.peak, self.in_flight)
+        try:
+            await asyncio.sleep(self.delay)
+        finally:
+            self.in_flight -= 1
+        return self.result
+
+
+async def test_ptz_coalesces_to_one_in_flight_command(service_factory):
+    """按住方向键时并发来 5 条：只保留一条在途，其余被更新的一条覆盖。
+
+    不合并的后果在弱网下很具体：命令堆在连接上，恢复瞬间一股脑下发，
+    球机按乱序的方向转几下才停——而页面上用户早就松手了。
+    """
+    hub = SlowHub()
+    service = await service_factory(hub)
+
+    async def one(direct: str) -> str:
+        try:
+            result = await service.dispatch(
+                "b-1", CommandName.CAMERA_PTZ, {"direct": direct}, session_id="s1"
+            )
+            return result["state"]
+        except ApiError as exc:
+            return exc.code.value
+
+    states = await asyncio.gather(*(one(d) for d in ["up", "down", "left", "right", "zoom_in"]))
+
+    assert hub.peak == 1
+    # 最后一条方向发得出去，中间的都被"更新的一条"覆盖掉了
+    assert hub.directions[-1] == "zoom_in"
+    assert states.count(ErrorCode.STALE.value) == len(states) - len(hub.directions)
+    assert service.superseded == len(states) - len(hub.directions)
+
+
+async def test_superseded_command_is_logged_as_rejected(service_factory):
+    """被覆盖的命令要留一行 rejected/stale，否则排障时看不到"这条根本没发"。"""
+    hub = SlowHub()
+    service = await service_factory(hub)
+
+    async def one(direct: str) -> None:
+        try:
+            await service.dispatch(
+                "b-1", CommandName.CAMERA_PTZ, {"direct": direct}, session_id="s2"
+            )
+        except ApiError:
+            pass          # 被覆盖的那几条，预期之内
+
+    await asyncio.gather(one("up"), one("down"), one("left"))
+
+    rows = await service.db.fetchall(
+        "SELECT status, error_code FROM command_log WHERE status = ?", ("rejected",)
+    )
+    assert rows and all(row["error_code"] == ErrorCode.STALE.value for row in rows)
+
+
+async def test_preset_commands_are_not_coalesced(service_factory):
+    """预置点是独立动作：合并等于静默丢掉用户点的那个点。"""
+    hub = SlowHub()
+    service = await service_factory(hub)
+
+    await asyncio.gather(
+        *(
+            service.dispatch(
+                "b-1", CommandName.CAMERA_PRESET_GOTO, {"preset": preset}, session_id="s3"
+            )
+            for preset in (1, 2, 3)
+        )
+    )
+
+    assert len(hub.directions) == 3          # 三条都真的下发了
+    assert hub.peak == 3                     # 互不串行
 
 
 # --- 快照二段式 ---------------------------------------------------------

@@ -62,6 +62,8 @@ class AgentMeta:
     #: 页面据此决定显示"高清/云台/快照"还是直接写"不支持远程画面"。
     capabilities: list[str] = field(default_factory=list)
     media_profiles: list[str] = field(default_factory=list)
+    #: 上行帧率的自述上限（kbps，方案 §8.2）。云端只在选档时参考，不是硬约束。
+    max_frame_kbps: int = 0
 
 
 class AgentConnection:
@@ -151,12 +153,19 @@ class AgentConnection:
         payload: dict[str, Any] | None = None,
         *,
         timeout: float | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
-        """下发一条指令并等它的 result。失败抛 AgentError。"""
+        """下发一条指令并等它的 result。失败抛 AgentError。
+
+        `request_id` 就是命令信封里的 `command_id`（方案 §5.1 要求两者一致）。
+        让它们共用同一个值时，一条命令在**任何**日志、任何一端都只有一个标识：
+        云端 `command_log.command_id`、线上帧 `id`、agent 去重表键、事件里的
+        `command_id` 全部对得上，排障时不用在两张表之间来回翻译。
+        """
         if self.closed:
             raise AgentError(ErrorCode.AGENT_OFFLINE, "agent is not connected")
 
-        frame = Message.command_frame(command, payload or {})
+        frame = Message.command_frame(command, payload or {}, id=request_id)
         request_id = frame.id
         future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         self.pending[request_id] = future
@@ -277,6 +286,7 @@ class Hub:
                 "agent_version": conn.meta.agent_version,
                 "capabilities": list(conn.meta.capabilities),
                 "media_profiles": list(conn.meta.media_profiles),
+                "max_frame_kbps": conn.meta.max_frame_kbps,
                 "connected_at": conn.connected_at,
                 "last_seen": conn.last_seen,
                 "pending_requests": len(conn.pending),
@@ -300,11 +310,12 @@ class Hub:
         payload: dict[str, Any] | None = None,
         *,
         timeout: float | None = None,
+        request_id: str | None = None,
     ) -> dict[str, Any]:
         conn = self.get(agent_id)
         if conn is None:
             raise AgentError(ErrorCode.AGENT_OFFLINE, "agent is not connected")
-        return await conn.request(command, payload, timeout=timeout)
+        return await conn.request(command, payload, timeout=timeout, request_id=request_id)
 
     # --- 心跳清扫 -------------------------------------------------------
 

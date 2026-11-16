@@ -84,6 +84,9 @@ async def agent_socket(websocket: WebSocket) -> None:
     roots = [str(r) for r in payload.get("roots", []) if isinstance(r, str)]
     capabilities = _as_str_list(payload.get("capabilities"))
     media_profiles = _as_str_list(payload.get("media_profiles"))
+    # 上行自述带宽上限（kbps）。只是个参考值：不是硬约束，缺省/非法一律 0
+    # （页面按"未声明"处理，而不是按 0 kbps 处理）。
+    max_frame_kbps = _as_positive_int(payload.get("max_frame_kbps"))
 
     await ctx.db.execute(
         "UPDATE agents SET hostname = COALESCE(?, hostname), os = COALESCE(?, os),"
@@ -109,6 +112,7 @@ async def agent_socket(websocket: WebSocket) -> None:
         roots=roots,
         capabilities=capabilities,
         media_profiles=media_profiles,
+        max_frame_kbps=max_frame_kbps,
     )
     conn = AgentConnection(
         websocket=websocket,
@@ -216,6 +220,20 @@ def _as_str_list(value: object, limit: int = 32) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value[:limit] if isinstance(item, str) and item]
+
+
+def _as_positive_int(value: object, limit: int = 1_000_000) -> int:
+    """hello 里的自述数值（如 max_frame_kbps）。
+
+    布尔、负数、非数字一律当"没有声明"（0）。不做范围兜底的话，一个手写的
+    hello 就能把页面上的档位选择器撑成天文数字。
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    number = int(value)
+    if number <= 0:
+        return 0
+    return min(number, limit)
 
 
 def _json_list(values: list[str]) -> str:
