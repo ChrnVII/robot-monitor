@@ -58,3 +58,57 @@ async def stats(ctx: Context) -> dict[str, Any]:
 async def audit(ctx: Context, limit: int = 100) -> dict[str, Any]:
     rows = await ctx.auth.recent_audit(limit=min(max(limit, 1), 500))
     return {"items": rows, "total": len(rows)}
+
+
+@router.get("/api/v1/system/metrics", dependencies=[Depends(require_session)])
+async def metrics(ctx: Context) -> dict[str, Any]:
+    """指标骨架（方案 §8.4）。
+
+    原则：**能算的现在算，算不了的显式写成 null**。少一个字段会让看板把
+    "没有采集"读成"数值是 0"——弱网问题上这两种解释的处置完全相反。
+
+    命名与方案一致，媒体与事件两组在 P1/P3 接通后填进来，不用改前端字段名。
+    """
+    now = time.time()
+    connections = ctx.hub.snapshot()
+
+    control = {
+        agent_id: info["stats"] for agent_id, info in connections.items()
+    }
+    return {
+        "server_time": now,
+        "control": {
+            "per_agent": control,
+            # 控制可靠性的核心指标：超时次数。它不代表"没执行"，只代表"没结果"。
+            "control_unknown_total": sum(item["timeouts"] for item in control.values()),
+            "requests_total": sum(item["requests"] for item in control.values()),
+        },
+        "state": {
+            "per_agent": [
+                {
+                    "agent_id": record.agent_id,
+                    "state_version": record.state_version,
+                    "state_freshness_ms": round(max(0.0, now - record.observed_at) * 1000),
+                    "freshness": record.freshness(now),
+                }
+                for record in (await ctx.states.snapshot()).values()
+            ],
+            **ctx.states.stats(),
+        },
+        # P1 接通媒体会话后：media_last_frame_age_ms / media_dropped_frames /
+        # keyframe_waits / media_e2e_latency_ms（后者只能由浏览器上报）。
+        "media": {
+            "sessions": ctx.media.snapshot(),
+        },
+        # 补传落后量由**机器人自己**上报（它才知道本地还有多少条没发出去），
+        # 随状态帧的 link 组一起上来。云端不去猜。
+        "events": {
+            "per_agent": [
+                {
+                    "agent_id": agent_id,
+                    "event_lag_seq": (record.state.get("link") or {}).get("event_lag_seq"),
+                }
+                for agent_id, record in (await ctx.states.snapshot()).items()
+            ]
+        },
+    }

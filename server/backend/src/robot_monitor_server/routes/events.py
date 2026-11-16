@@ -18,7 +18,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
 from ..deps import Context, SessionToken
@@ -59,3 +59,29 @@ async def event_stream(request: Request, ctx: Context, token: SessionToken) -> S
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/api/v1/events")
+async def device_events(
+    ctx: Context,
+    token: SessionToken,
+    agent_id: str | None = Query(default=None, max_length=64),
+    cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+    event_type: str | None = Query(default=None, max_length=64),
+) -> dict:
+    """按游标拉设备事件。
+
+    为什么要有这条：SSE 只推"有新事件"，**不重放**。断线期间产生的事件必须
+    靠游标查询补齐——这和文件任务靠 `GET /tasks` 对账是同一个道理。
+    页面记住自己的 `cursor`（最大的 event_seq），下次从这里继续。
+    """
+    items = await ctx.events.query(
+        agent_id=agent_id, cursor=cursor, limit=limit, event_type=event_type
+    )
+    return {
+        "items": items,
+        "total": len(items),
+        # 下一页的游标：没有新数据时保持不变，页面不用自己算。
+        "next_cursor": items[-1]["event_seq"] if items else cursor,
+    }

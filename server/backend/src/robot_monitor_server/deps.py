@@ -12,13 +12,17 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, status
 
 from .auth import AuthService
+from .commands import CommandService
 from .config import Settings
 from .db import Database
 from .events import EventBus
+from .eventstore import EventStore
 from .hub import Hub
+from .media import MediaRegistry
 from .protocol import ErrorCode
 from .ratelimit import SlidingWindow
 from .services import TaskService
+from .state import StateStore
 from .storage import Storage
 
 
@@ -39,6 +43,15 @@ class AppContext:
     bus: EventBus
     tasks: TaskService
     limits: Limits
+    #: 设备状态 Twin。接口是 Protocol，第一期实现是进程内字典——
+    #: 换 Redis 时只替换实现，路由与 WS 不动。
+    states: StateStore
+    #: 媒体会话表（运行期内存）。与 StateStore 同样只暴露接口。
+    media: MediaRegistry
+    #: 命令信封与状态机。所有云台/预置点/快照都必须经过它。
+    commands: CommandService
+    #: 设备事件表（可靠、可重放、按游标查询）。
+    events: EventStore
 
 
 def context(request: Request) -> AppContext:

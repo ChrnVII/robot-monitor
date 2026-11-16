@@ -23,6 +23,7 @@ from ..errors import from_agent_error
 from ..hub import AgentError
 from ..paths import normalize_client_path
 from ..protocol import CommandName, ErrorCode
+from ..state import unknown_view
 
 router = APIRouter(
     prefix="/api/v1/agents",
@@ -59,6 +60,14 @@ async def list_agents(ctx: Context) -> dict[str, Any]:
                 "os": (runtime or {}).get("os") or row["os"],
                 "agent_version": (runtime or {}).get("agent_version") or row["agent_version"],
                 "roots": _parse_roots(row["roots"]),
+                # 在线时以 hello 里的为准（刚升级过的节点不会等下一次心跳），
+                # 离线时回落库里最后一次声明的值。
+                "capabilities": (runtime or {}).get("capabilities")
+                if runtime is not None
+                else _parse_list(row["capabilities"]),
+                "media_profiles": (runtime or {}).get("media_profiles")
+                if runtime is not None
+                else _parse_list(row["media_profiles"]),
                 "last_seen": (runtime or {}).get("last_seen") or row["last_seen"],
                 "connected_at": (runtime or {}).get("connected_at"),
                 "revoked": row["revoked_at"] is not None,
@@ -68,6 +77,20 @@ async def list_agents(ctx: Context) -> dict[str, Any]:
     return {"items": items, "total": len(items)}
 
 
+@router.get("/{agent_id}/state")
+async def agent_state(agent_id: str, ctx: Context) -> dict[str, Any]:
+    """设备状态 Twin 的当前值，兼作 REST 全量对账。
+
+    页面订阅 SSE 拿增量，断了之后靠这条重新对齐——和文件任务靠 `GET /tasks`
+    对账是同一套约定。从未上报过时返回 `freshness=unknown` 的空视图，
+    而不是 404：对页面来说"没数据"和"没这台设备"是两件事。
+    """
+    record = await ctx.states.get(agent_id)
+    if record is None:
+        return unknown_view(agent_id)
+    return record.view()
+
+
 @router.delete("/{agent_id}")
 async def delete_agent(agent_id: str, ctx: Context, delete_files: bool = False) -> dict[str, Any]:
     """注销一台节点。
@@ -75,7 +98,11 @@ async def delete_agent(agent_id: str, ctx: Context, delete_files: bool = False) 
     `delete_files=true` 会把它的文件从库里**真删**——删节点是不可逆动作，
     默认不动文件；要连文件一起清，调用方必须显式勾选。
     """
-    return await ctx.tasks.remove_agent(agent_id, delete_files=delete_files)
+    result = await ctx.tasks.remove_agent(agent_id, delete_files=delete_files)
+    # 状态 Twin 里也清掉：否则已删节点的那一份"最后状态"会一直挂在内存里，
+    # 将来做全量状态列表时它会凭空冒出来。
+    ctx.states.forget(agent_id)
+    return result
 
 
 @router.get("/pending")
@@ -175,6 +202,10 @@ async def list_dir(agent_id: str, payload: ListDirPayload, ctx: Context) -> dict
 
 
 def _parse_roots(raw: Any) -> list[str]:
+    return _parse_list(raw)
+
+
+def _parse_list(raw: Any) -> list[str]:
     try:
         value = json.loads(raw or "[]")
     except (TypeError, ValueError):

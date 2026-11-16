@@ -1,4 +1,4 @@
-"""`/ws/agent`：B 反向接入口。
+"""`/ws/agent`：B 反向接入口（控制 C0 + 状态）。
 
 握手顺序是刻意写死的：
 
@@ -11,6 +11,10 @@
 
 第 4 步是"B 重启后能续传"的全部实现：A 不需要主动推任何东西，B 一连上就
 拿到了自己该干什么。
+
+这条连接同时承载**状态**（`state` 帧），但两者的背压完全不同：命令回包不能丢，
+状态可以整帧丢。所以状态帧进来就地覆盖 `StateStore`，不进任何队列；版本落后
+或字段不合法时丢弃并计数，而不是回一个错误让 B 重发——状态没有"重发"的意义。
 """
 
 from __future__ import annotations
@@ -78,11 +82,22 @@ async def agent_socket(websocket: WebSocket) -> None:
     os_name = _as_str(payload.get("os"))
     version = _as_str(payload.get("agent_version"))
     roots = [str(r) for r in payload.get("roots", []) if isinstance(r, str)]
+    capabilities = _as_str_list(payload.get("capabilities"))
+    media_profiles = _as_str_list(payload.get("media_profiles"))
 
     await ctx.db.execute(
         "UPDATE agents SET hostname = COALESCE(?, hostname), os = COALESCE(?, os),"
-        " agent_version = COALESCE(?, agent_version), roots = ? WHERE id = ?",
-        (hostname, os_name, version, _json_list(roots), agent_id),
+        " agent_version = COALESCE(?, agent_version), roots = ?,"
+        " capabilities = ?, media_profiles = ? WHERE id = ?",
+        (
+            hostname,
+            os_name,
+            version,
+            _json_list(roots),
+            _json_list(capabilities),
+            _json_list(media_profiles),
+            agent_id,
+        ),
     )
 
     meta = AgentMeta(
@@ -92,6 +107,8 @@ async def agent_socket(websocket: WebSocket) -> None:
         os=os_name,
         agent_version=version,
         roots=roots,
+        capabilities=capabilities,
+        media_profiles=media_profiles,
     )
     conn = AgentConnection(
         websocket=websocket,
@@ -139,6 +156,8 @@ async def agent_socket(websocket: WebSocket) -> None:
             if message.type is MessageType.RESULT:
                 if not conn.resolve(message):
                     logger.debug("agent %s returned an unmatched result %s", agent_id, message.id)
+            elif message.type is MessageType.STATE:
+                await _on_state(ctx, agent_id, message.payload)
             elif message.type is MessageType.EVENT:
                 try:
                     await ctx.tasks.handle_agent_event(agent_id, message.payload)
@@ -168,8 +187,35 @@ async def agent_socket(websocket: WebSocket) -> None:
         await ctx.hub.unregister(conn)
 
 
+async def _on_state(ctx: AppContext, agent_id: str, payload: dict[str, object]) -> None:
+    """落一帧状态。
+
+    被拒（版本落后 / 缺字段）是**正常流量**而不是错误：状态允许丢旧值，
+    重连瞬间两边都很可能有几帧乱序。所以这里只 debug 一行，然后把已经
+    被接受的新状态推进 SSE，让浏览器按 `state_version` 自己覆盖。
+    """
+    accepted = await ctx.states.put(agent_id, dict(payload))
+    if not accepted:
+        logger.debug("agent %s sent a stale or malformed state frame", agent_id)
+        return
+    record = await ctx.states.get(agent_id)
+    if record is not None:
+        ctx.bus.publish("state", record.view())
+
+
 def _as_str(value: object) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+def _as_str_list(value: object, limit: int = 32) -> list[str]:
+    """hello 里的能力清单：只接受字符串数组，截断到 `limit` 项。
+
+    字段缺失或类型不对时返回空列表——对页面来说"没声明"与"没有"呈现相同，
+    都不该出现远程画面按钮。截断是防御性的：能力清单不该被用来撑大帧。
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value[:limit] if isinstance(item, str) and item]
 
 
 def _json_list(values: list[str]) -> str:

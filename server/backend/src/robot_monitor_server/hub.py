@@ -58,6 +58,10 @@ class AgentMeta:
     os: str | None = None
     agent_version: str | None = None
     roots: list[str] = field(default_factory=list)
+    #: hello 里声明的能力。空列表是"这个构建没有这些能力"，不是"未知"——
+    #: 页面据此决定显示"高清/云台/快照"还是直接写"不支持远程画面"。
+    capabilities: list[str] = field(default_factory=list)
+    media_profiles: list[str] = field(default_factory=list)
 
 
 class AgentConnection:
@@ -80,6 +84,13 @@ class AgentConnection:
         self.connected_at = self.last_seen
         self.closed = False
         self._send_task: asyncio.Task[None] | None = None
+        # 超时统计是 `unknown` 判定的输入（方案 §5.2）：云端只知道"这条命令
+        # 在 deadline 内没回结果"，**不能**据此断言机器人没执行。页面必须显示
+        # "结果未知"并给出"查询当前预置点"的纠正入口。
+        self.requests = 0
+        self.timeouts = 0
+        self.unmatched_results = 0
+        self.last_timeout_at: float | None = None
 
     # --- 生命周期 -------------------------------------------------------
 
@@ -149,12 +160,16 @@ class AgentConnection:
         request_id = frame.id
         future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         self.pending[request_id] = future
+        self.requests += 1
 
         limit = timeout if timeout is not None else self.command_timeout
         try:
             await self.enqueue(frame.to_json())
             message = await asyncio.wait_for(future, limit)
         except TimeoutError as exc:
+            # 只加计数、不判定成败：这条命令此刻的真实状态是 unknown。
+            self.timeouts += 1
+            self.last_timeout_at = time.time()
             raise AgentError(
                 ErrorCode.TIMEOUT, f"agent did not answer {command.value} within {limit:g}s"
             ) from exc
@@ -175,6 +190,9 @@ class AgentConnection:
         """把一个 result 帧交给它对应的请求。返回是否命中。"""
         future = self.pending.get(message.id)
         if future is None or future.done():
+            # 迟到超过超时的回包会落到这里。计数而不是丢弃了事：它恰好说明
+            # "那条报了超时的命令其实执行成功了"，是 unknown 判定的反证。
+            self.unmatched_results += 1
             return False
         future.set_result(message)
         return True
@@ -257,9 +275,17 @@ class Hub:
                 "hostname": conn.meta.hostname,
                 "os": conn.meta.os,
                 "agent_version": conn.meta.agent_version,
+                "capabilities": list(conn.meta.capabilities),
+                "media_profiles": list(conn.meta.media_profiles),
                 "connected_at": conn.connected_at,
                 "last_seen": conn.last_seen,
                 "pending_requests": len(conn.pending),
+                "stats": {
+                    "requests": conn.requests,
+                    "timeouts": conn.timeouts,
+                    "unmatched_results": conn.unmatched_results,
+                    "last_timeout_at": conn.last_timeout_at,
+                },
             }
             for aid, conn in self._connections.items()
             if not conn.closed

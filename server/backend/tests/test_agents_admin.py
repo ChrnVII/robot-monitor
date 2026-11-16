@@ -246,6 +246,10 @@ def test_approve_from_web_issues_token_once(tmp_path):
         agents = client.get("/api/v1/agents").json()["items"]
         assert [a["name"] for a in agents] == ["lab-02"]
         assert agents[0]["files"] == 0
+        # 从未连过的节点没有声明过能力：空数组，而不是字段缺失。
+        # 页面据此显示"不支持远程画面"，而不是一个永远转圈的播放器。
+        assert agents[0]["capabilities"] == []
+        assert agents[0]["media_profiles"] == []
         assert client.get("/api/v1/agents/pending").json()["total"] == 0
 
         # token 只能领一次

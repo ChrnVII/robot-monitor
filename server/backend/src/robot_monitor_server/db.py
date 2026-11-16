@@ -79,6 +79,11 @@ CREATE TABLE IF NOT EXISTS agents (
     os             TEXT,
     agent_version  TEXT,
     roots          TEXT NOT NULL DEFAULT '[]',
+    -- hello 帧里的能力协商结果（JSON 数组）。老 agent 不带这个字段，
+    -- 落库统一成 '[]'：对页面来说"没声明"与"明确没有"的呈现是同一个
+    -- （都不该出现按钮），不需要为此多一列或一个 NULL 语义。
+    capabilities   TEXT NOT NULL DEFAULT '[]',
+    media_profiles TEXT NOT NULL DEFAULT '[]',
     last_seen      REAL,
     online         INTEGER NOT NULL DEFAULT 0,
     created_at     REAL NOT NULL,
@@ -147,7 +152,71 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
+
+-- 设备状态快照（只存最新一行）。状态是"现在是什么"，历史属于事件或时序库，
+-- 不在这里堆积；每次覆盖写，重启后作为初始值读回来。
+CREATE TABLE IF NOT EXISTS agent_state (
+    agent_id      TEXT PRIMARY KEY,
+    state_version INTEGER NOT NULL,
+    observed_at   REAL NOT NULL,
+    received_at   REAL NOT NULL,
+    state_json    TEXT NOT NULL
+);
+
+-- 命令日志（状态机可查询）。202 只代表 accepted，页面上"已执行"必须等 succeeded。
+CREATE TABLE IF NOT EXISTS command_log (
+    command_id   TEXT PRIMARY KEY,
+    agent_id     TEXT NOT NULL,
+    session_id   TEXT,
+    action       TEXT NOT NULL,
+    status       TEXT NOT NULL,   -- accepted/dispatched/received/executing/succeeded/failed/expired/unknown
+    issued_at    REAL NOT NULL,
+    deadline     REAL,
+    updated_at   REAL NOT NULL,
+    trace_id     TEXT,
+    error_code   TEXT,
+    payload_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_command_agent_time ON command_log(agent_id, issued_at DESC);
+
+-- 设备事件（可靠、可重放）。(agent_id, event_seq) 是去重键：
+-- 至少一次投递 + 幂等消费，重复不报错。
+CREATE TABLE IF NOT EXISTS device_events (
+    agent_id     TEXT NOT NULL,
+    event_seq    INTEGER NOT NULL,
+    event_id     TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    occurred_at  REAL NOT NULL,
+    received_at  REAL NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (agent_id, event_seq)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_events_id ON device_events(agent_id, event_id);
+CREATE INDEX IF NOT EXISTS idx_device_events_time ON device_events(agent_id, occurred_at DESC);
+
+-- 媒体会话（运行期在内存，落库仅用于审计与重启后对账）。
+CREATE TABLE IF NOT EXISTS media_session (
+    session_id   TEXT PRIMARY KEY,
+    agent_id     TEXT NOT NULL,
+    camera_id    TEXT NOT NULL,
+    profile      TEXT NOT NULL,
+    started_at   REAL NOT NULL,
+    ended_at     REAL,
+    end_reason   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_media_session_agent ON media_session(agent_id, started_at DESC);
 """
+
+#: 建表之后才追加的列：(表, 列, 定义)。
+#:
+#: `CREATE TABLE IF NOT EXISTS` 只对新库生效，老库不会长出新增的列。这里检查
+#: 一下 `PRAGMA table_info`，缺了就 `ALTER TABLE`——比引入 Alembic 便宜得多，
+#: 而这个库的表结构变更频率是"每季度一两次"，不值得为它维护迁移链。
+#: 只允许"加列"，且必须带常量默认值（SQLite 的限制，也够用了）。
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("agents", "capabilities", "TEXT NOT NULL DEFAULT '[]'"),
+    ("agents", "media_profiles", "TEXT NOT NULL DEFAULT '[]'"),
+)
 
 
 class Database:
@@ -173,6 +242,7 @@ class Database:
         await conn.execute("PRAGMA busy_timeout=5000")
         await conn.execute("PRAGMA foreign_keys=ON")
         await conn.executescript(SCHEMA)
+        await _ensure_columns(conn)
         # instance_id 一次生成、终身不变。用 OR IGNORE 而不是"先查再插"：
         # 两个进程同时起来抢同一条也只会有一个赢，另一个静默落空。
         await conn.execute(
@@ -237,3 +307,15 @@ class Database:
         if row is None:
             return default
         return row[0]
+
+
+async def _ensure_columns(conn: aiosqlite.Connection) -> None:
+    """给老库补上新增的列。幂等：列已存在时什么都不做。"""
+    for table, column, definition in ADDED_COLUMNS:
+        cursor = await conn.execute(f"PRAGMA table_info({table})")
+        try:
+            existing = {str(row[1]) for row in await cursor.fetchall()}
+        finally:
+            await cursor.close()
+        if column not in existing:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

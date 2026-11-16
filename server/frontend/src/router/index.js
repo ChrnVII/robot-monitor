@@ -22,6 +22,14 @@ const routes = [
         component: () => import('../views/NodesView.vue'),
         meta: { title: '节点' }
       },
+      {
+        // 远程监控是独立的一级页面：它盯的是"当前选中的那台设备"，
+        // 不属于文件管理那三个 tab。
+        path: 'monitor',
+        name: 'monitor',
+        component: () => import('../views/MonitorView.vue'),
+        meta: { title: '远程监控' }
+      },
       { path: 'manage', redirect: { name: 'browse' } },
       {
         path: 'manage/browse',
