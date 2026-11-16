@@ -287,6 +287,14 @@ export function useMediaStream(options = {}) {
     if (message.t === 'error') {
       const code = message.code || 'stream_disabled'
       errorText.value = message.message || '实时画面不可用'
+      if (code === 'backend_unreachable') {
+        // 机器人连不上它自己的本地服务：常见于后端重启或地址配错。
+        // 前一种会自己恢复，所以按"可重连"处理，而不是永久不可用。
+        phase.value = 'reconnecting'
+        closeSocket()
+        scheduleReconnect('reconnecting')
+        return
+      }
       if (code === 'agent_offline') {
         // 设备离线是暂时状态：等设备回来自己能连上，但不能高频重试。
         phase.value = 'agent_offline'

@@ -63,6 +63,7 @@ _STATUS_BY_CODE = {
     ErrorCode.UNKNOWN_COMMAND: CommandStatus.REJECTED.value,
     ErrorCode.CAMERA_UNAVAILABLE: CommandStatus.FAILED.value,
     ErrorCode.STREAM_DISABLED: CommandStatus.FAILED.value,
+    ErrorCode.BACKEND_UNREACHABLE: CommandStatus.FAILED.value,
 }
 
 

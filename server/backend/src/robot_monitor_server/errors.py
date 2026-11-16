@@ -60,6 +60,9 @@ def from_agent_error(error: AgentError) -> ApiError:
         # 归 503。前端据此显示具体原因并提示改用快照，而不是无限重连。
         ErrorCode.CAMERA_UNAVAILABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
         ErrorCode.STREAM_DISABLED: status.HTTP_503_SERVICE_UNAVAILABLE,
+        # 机器人连不上它自己的本地 backend：同样是 503，但页面文案不同——
+        # "机器人本地服务不可达"指配置/进程问题，"相机不可用"指硬件问题。
+        ErrorCode.BACKEND_UNREACHABLE: status.HTTP_503_SERVICE_UNAVAILABLE,
     }
     return ApiError(
         mapping.get(error.code, status.HTTP_502_BAD_GATEWAY), error.code, error.message
